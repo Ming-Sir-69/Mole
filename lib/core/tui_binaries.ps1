@@ -76,6 +76,36 @@ function Get-WindowsPrereleaseReleaseInfo {
     return $null
 }
 
+# The SHA-256 the release's SHA256SUMS.txt publishes for one asset, or $null
+# when the release has no checksum file or does not list that asset.
+function Get-ReleaseAssetSha256 {
+    param(
+        $ReleaseInfo,
+        [string]$AssetName
+    )
+
+    $sumsAsset = $ReleaseInfo.assets | Where-Object { $_.name -eq "SHA256SUMS.txt" } | Select-Object -First 1
+    if (-not $sumsAsset) {
+        return $null
+    }
+
+    $content = (Invoke-WebRequest -Uri $sumsAsset.browser_download_url -Headers $script:MoleGitHubHeaders -UseBasicParsing).Content
+    if ($content -is [byte[]]) {
+        $content = [System.Text.Encoding]::UTF8.GetString($content)
+    }
+
+    foreach ($line in ($content -split "`r?`n")) {
+        $entry = $line.Trim([char]0xFEFF).Trim()
+        if ($entry -match '^([0-9a-fA-F]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -eq $AssetName) {
+            return $Matches[1].ToLowerInvariant()
+        }
+    }
+
+    return $null
+}
+
+# Returns "ok", "unavailable" (no release, asset or published checksum) or
+# "mismatch" (the download did not match its published checksum and was deleted).
 function Restore-PrebuiltTuiBinary {
     param(
         [string]$Name,
@@ -86,13 +116,19 @@ function Restore-PrebuiltTuiBinary {
 
     $releaseInfo = Get-WindowsPrereleaseReleaseInfo -Version $Version
     if (-not $releaseInfo) {
-        return $false
+        return "unavailable"
     }
 
     $assetName = Get-TuiBinaryAssetName -Name $Name
     $asset = $releaseInfo.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
     if (-not $asset) {
-        return $false
+        return "unavailable"
+    }
+
+    # An executable is never used without a published checksum to compare.
+    $expectedHash = Get-ReleaseAssetSha256 -ReleaseInfo $releaseInfo -AssetName $assetName
+    if (-not $expectedHash) {
+        return "unavailable"
     }
 
     $binDir = Split-Path -Parent $DestinationPath
@@ -102,15 +138,22 @@ function Restore-PrebuiltTuiBinary {
 
     Write-Host "Downloading prebuilt $Name tool..." -ForegroundColor Cyan
 
+    $downloadPath = "$DestinationPath.download"
     try {
-        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $script:MoleGitHubHeaders -OutFile $DestinationPath -UseBasicParsing
-        return (Test-Path $DestinationPath)
+        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $script:MoleGitHubHeaders -OutFile $downloadPath -UseBasicParsing
+        $actualHash = (Get-FileHash -Path $downloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $expectedHash) {
+            Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
+            return "mismatch"
+        }
+        Move-Item -Path $downloadPath -Destination $DestinationPath -Force
+        return "ok"
     }
     catch {
-        if (Test-Path $DestinationPath) {
-            Remove-Item $DestinationPath -Force -ErrorAction SilentlyContinue
+        if (Test-Path $downloadPath) {
+            Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
         }
-        return $false
+        return "unavailable"
     }
 }
 
@@ -194,13 +237,21 @@ function Ensure-TuiBinary {
         $Version = Get-MoleVersionFromScriptFile -WindowsDir $WindowsDir
     }
 
+    $restoreResult = "unavailable"
     try {
-        if (Restore-PrebuiltTuiBinary -Name $Name -WindowsDir $WindowsDir -DestinationPath $DestinationPath -Version $Version) {
-            return $DestinationPath
-        }
+        $restoreResult = Restore-PrebuiltTuiBinary -Name $Name -WindowsDir $WindowsDir -DestinationPath $DestinationPath -Version $Version
     }
     catch {
         Write-Host "Failed to restore prebuilt $Name tool: $_" -ForegroundColor Yellow
+    }
+    if ($restoreResult -eq "ok") {
+        return $DestinationPath
+    }
+    # A checksum mismatch means the published file is not the one released;
+    # stop here instead of quietly building something else.
+    if ($restoreResult -eq "mismatch") {
+        Write-Host "The downloaded $Name tool did not match its published checksum and was deleted. Run 'mo update' and try again, or report it at https://github.com/tw93/Mole/issues." -ForegroundColor Red
+        return $null
     }
 
     if (Get-Command go -ErrorAction SilentlyContinue) {

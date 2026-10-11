@@ -406,7 +406,7 @@ Describe "Installer Script" {
             $source = Get-Content $script:InstallScript -Raw
             $source | Should -Match "Ensure-TuiBinary"
             $source | Should -Match "Skipping .*non-fatal setup error"
-            $source | Should -Match "Could not prepare .*Install Go or wait for a Windows prerelease asset"
+            $source | Should -Match "Could not prepare .*Install Go, or run"
         }
     }
 }

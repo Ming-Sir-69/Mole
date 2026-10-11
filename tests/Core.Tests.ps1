@@ -417,3 +417,49 @@ Describe "Version Helpers" {
         }
     }
 }
+
+Describe "Prebuilt TUI download verification" {
+    BeforeEach {
+        $script:Dest = Join-Path $TestDrive ("bin-" + [guid]::NewGuid().ToString("N") + "\status.exe")
+        $script:Payload = "prebuilt status binary"
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($script:Payload)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $script:GoodHash = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+        $script:SumsText = "$($script:GoodHash)  status-windows-x64.exe"
+
+        Mock Invoke-RestMethod {
+            [pscustomobject]@{
+                assets = @(
+                    [pscustomobject]@{ name = "status-windows-x64.exe"; browser_download_url = "https://example.invalid/status" },
+                    [pscustomobject]@{ name = "SHA256SUMS.txt"; browser_download_url = "https://example.invalid/sums" }
+                )
+            }
+        }
+        Mock Invoke-WebRequest {
+            if ($OutFile) {
+                [System.IO.File]::WriteAllText($OutFile, $script:Payload)
+                return
+            }
+            [pscustomobject]@{ Content = $script:SumsText }
+        }
+    }
+
+    It "Keeps a download whose SHA-256 matches the published checksum" {
+        Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "ok"
+        Test-Path $script:Dest | Should -BeTrue
+    }
+
+    It "Deletes a download that does not match and reports a mismatch" {
+        $script:SumsText = ("0" * 64) + "  status-windows-x64.exe"
+        Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "mismatch"
+        Test-Path $script:Dest | Should -BeFalse
+        Test-Path "$($script:Dest).download" | Should -BeFalse
+    }
+
+    It "Never downloads an executable the checksum file does not list" {
+        $script:SumsText = "$($script:GoodHash)  analyze-windows-x64.exe"
+        Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "unavailable"
+        Should -Invoke Invoke-WebRequest -Times 0 -ParameterFilter { $OutFile }
+        Test-Path $script:Dest | Should -BeFalse
+    }
+}

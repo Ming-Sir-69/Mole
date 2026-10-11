@@ -353,7 +353,7 @@ function Ensure-OptionalTuiTools {
             Write-Success "Ready: $($tool.Name).exe"
         }
         else {
-            Write-MoleWarning "Could not prepare $($tool.Name).exe. Install Go or wait for a Windows prerelease asset."
+            Write-MoleWarning "Could not prepare $($tool.Name).exe. Install Go, or run mo update later to fetch the release build."
         }
     }
 }

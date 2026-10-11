@@ -50,8 +50,8 @@ if ($ShowHelp) {
 
 $binPath = Ensure-TuiBinary -Name "analyze" -WindowsDir $windowsDir -DestinationPath $defaultBinPath -SourcePath "./cmd/analyze/"
 if (-not $binPath) {
-    Write-Host "Analyze binary not found, no prerelease asset was available, and Go 1.24+ is not installed." -ForegroundColor Red
-    Write-Host "Install Go or wait for a Windows prerelease asset that includes analyze.exe." -ForegroundColor Yellow
+    Write-Host "Analyze binary not found, no verified release asset was available, and Go is not installed." -ForegroundColor Red
+    Write-Host "Install Go, or run 'mo update' and try again." -ForegroundColor Yellow
     exit 1
 }
 
