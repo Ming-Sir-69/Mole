@@ -1,674 +1,404 @@
-//go:build windows
-
+// Package main provides the mo status command for real-time system monitoring.
 package main
 
 import (
-	"context"
+	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
-	"runtime"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/disk"
-	"github.com/shirou/gopsutil/v3/host"
-	"github.com/shirou/gopsutil/v3/mem"
-	"github.com/shirou/gopsutil/v3/net"
-	"github.com/shirou/gopsutil/v3/process"
 )
 
-// Styles
+const (
+	refreshInterval      = time.Second
+	processWatchInterval = refreshInterval
+	slowRefreshInterval  = 30 * time.Second
+)
+
 var (
-	titleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#C79FD7")).Bold(true)
-	headerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#87CEEB")).Bold(true)
-	labelStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	valueStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF"))
-	okStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#A5D6A7"))
-	warnStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFD75F"))
-	dangerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5F5F")).Bold(true)
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#666666"))
-	cardStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#444444")).Padding(0, 1)
+	// Command-line flags
+	jsonOutput       = flag.Bool("json", false, "output metrics as JSON instead of TUI")
+	procCPUThreshold = flag.Float64("proc-cpu-threshold", 100, "alert when a process stays above this CPU percent")
+	procCPUWindow    = flag.Duration("proc-cpu-window", 5*time.Minute, "continuous duration a process must exceed the CPU threshold")
+	procCPUAlerts    = flag.Bool("proc-cpu-alerts", true, "enable persistent high-CPU process alerts")
+
+	// Watch mode: stream NDJSON (one snapshot per line) from a single warm collector.
+	watchMode     = flag.Bool("watch", false, "stream metrics continuously as newline-delimited JSON instead of the one-shot TUI/JSON")
+	watchInterval = flag.String("interval", "", "with --watch, collection interval (e.g. 1s, 2s); defaults to 1s")
 )
 
-// Metrics snapshot
-type MetricsSnapshot struct {
-	CollectedAt   time.Time
-	HealthScore   int
-	HealthMessage string
-
-	// Hardware
-	Hostname string
-	OS       string
-	Platform string
-	Uptime   time.Duration
-
-	// CPU
-	CPUModel   string
-	CPUCores   int
-	CPUPercent float64
-	CPUPerCore []float64
-
-	// Memory
-	MemTotal    uint64
-	MemUsed     uint64
-	MemPercent  float64
-	SwapTotal   uint64
-	SwapUsed    uint64
-	SwapPercent float64
-
-	// Disk
-	Disks []DiskInfo
-
-	// Network
-	Networks []NetworkInfo
-
-	// Processes
-	TopProcesses []ProcessInfo
-}
-
-type DiskInfo struct {
-	Device      string
-	Mountpoint  string
-	Total       uint64
-	Used        uint64
-	Free        uint64
-	UsedPercent float64
-	Fstype      string
-}
-
-type NetworkInfo struct {
-	Name        string
-	BytesSent   uint64
-	BytesRecv   uint64
-	PacketsSent uint64
-	PacketsRecv uint64
-}
-
-type ProcessInfo struct {
-	PID    int32
-	Name   string
-	CPU    float64
-	Memory float32
-}
-
-// Collector
-type Collector struct {
-	prevNet     map[string]net.IOCountersStat
-	prevNetTime time.Time
-	mu          sync.Mutex
-}
-
-func NewCollector() *Collector {
-	return &Collector{
-		prevNet: make(map[string]net.IOCountersStat),
+func shouldUseJSONOutput(forceJSON bool, stdout *os.File) bool {
+	if forceJSON {
+		return true
 	}
+	if stdout == nil {
+		return false
+	}
+	info, err := stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) == 0
 }
 
-func (c *Collector) Collect() MetricsSnapshot {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+type tickMsg struct{}
+type animTickMsg struct{}
 
-	var (
-		snapshot MetricsSnapshot
-		wg       sync.WaitGroup
-		mu       sync.Mutex
-	)
-
-	snapshot.CollectedAt = time.Now()
-
-	// Host info
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if info, err := host.InfoWithContext(ctx); err == nil {
-			mu.Lock()
-			snapshot.Hostname = info.Hostname
-			snapshot.OS = info.OS
-			snapshot.Platform = fmt.Sprintf("%s %s", info.Platform, info.PlatformVersion)
-			snapshot.Uptime = time.Duration(info.Uptime) * time.Second
-			mu.Unlock()
-		}
-	}()
-
-	// CPU info
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if cpuInfo, err := cpu.InfoWithContext(ctx); err == nil && len(cpuInfo) > 0 {
-			mu.Lock()
-			snapshot.CPUModel = cpuInfo[0].ModelName
-			snapshot.CPUCores = runtime.NumCPU()
-			mu.Unlock()
-		}
-		if percent, err := cpu.PercentWithContext(ctx, 500*time.Millisecond, false); err == nil && len(percent) > 0 {
-			mu.Lock()
-			snapshot.CPUPercent = percent[0]
-			mu.Unlock()
-		}
-		if perCore, err := cpu.PercentWithContext(ctx, 500*time.Millisecond, true); err == nil {
-			mu.Lock()
-			snapshot.CPUPerCore = perCore
-			mu.Unlock()
-		}
-	}()
-
-	// Memory
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if memInfo, err := mem.VirtualMemoryWithContext(ctx); err == nil {
-			mu.Lock()
-			snapshot.MemTotal = memInfo.Total
-			snapshot.MemUsed = memInfo.Used
-			snapshot.MemPercent = memInfo.UsedPercent
-			mu.Unlock()
-		}
-		if swapInfo, err := mem.SwapMemoryWithContext(ctx); err == nil {
-			mu.Lock()
-			snapshot.SwapTotal = swapInfo.Total
-			snapshot.SwapUsed = swapInfo.Used
-			snapshot.SwapPercent = swapInfo.UsedPercent
-			mu.Unlock()
-		}
-	}()
-
-	// Disk
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if partitions, err := disk.PartitionsWithContext(ctx, false); err == nil {
-			var disks []DiskInfo
-			for _, p := range partitions {
-				// Skip non-physical drives
-				if !strings.HasPrefix(p.Device, "C:") &&
-					!strings.HasPrefix(p.Device, "D:") &&
-					!strings.HasPrefix(p.Device, "E:") &&
-					!strings.HasPrefix(p.Device, "F:") {
-					continue
-				}
-				if usage, err := disk.UsageWithContext(ctx, p.Mountpoint); err == nil {
-					disks = append(disks, DiskInfo{
-						Device:      p.Device,
-						Mountpoint:  p.Mountpoint,
-						Total:       usage.Total,
-						Used:        usage.Used,
-						Free:        usage.Free,
-						UsedPercent: usage.UsedPercent,
-						Fstype:      p.Fstype,
-					})
-				}
-			}
-			mu.Lock()
-			snapshot.Disks = disks
-			mu.Unlock()
-		}
-	}()
-
-	// Network
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if netIO, err := net.IOCountersWithContext(ctx, true); err == nil {
-			var networks []NetworkInfo
-			for _, io := range netIO {
-				// Skip loopback and inactive interfaces
-				if io.Name == "Loopback Pseudo-Interface 1" || (io.BytesSent == 0 && io.BytesRecv == 0) {
-					continue
-				}
-				networks = append(networks, NetworkInfo{
-					Name:        io.Name,
-					BytesSent:   io.BytesSent,
-					BytesRecv:   io.BytesRecv,
-					PacketsSent: io.PacketsSent,
-					PacketsRecv: io.PacketsRecv,
-				})
-			}
-			mu.Lock()
-			snapshot.Networks = networks
-			mu.Unlock()
-		}
-	}()
-
-	// Top Processes
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		procs, err := process.ProcessesWithContext(ctx)
-		if err != nil {
-			return
-		}
-
-		var procInfos []ProcessInfo
-		for _, p := range procs {
-			name, err := p.NameWithContext(ctx)
-			if err != nil {
-				continue
-			}
-			cpuPercent, _ := p.CPUPercentWithContext(ctx)
-			memPercent, _ := p.MemoryPercentWithContext(ctx)
-
-			if cpuPercent > 0.1 || memPercent > 0.1 {
-				procInfos = append(procInfos, ProcessInfo{
-					PID:    p.Pid,
-					Name:   name,
-					CPU:    cpuPercent,
-					Memory: memPercent,
-				})
-			}
-		}
-
-		// Sort by CPU usage
-		for i := 0; i < len(procInfos)-1; i++ {
-			for j := i + 1; j < len(procInfos); j++ {
-				if procInfos[j].CPU > procInfos[i].CPU {
-					procInfos[i], procInfos[j] = procInfos[j], procInfos[i]
-				}
-			}
-		}
-
-		// Take top 5
-		if len(procInfos) > 5 {
-			procInfos = procInfos[:5]
-		}
-
-		mu.Lock()
-		snapshot.TopProcesses = procInfos
-		mu.Unlock()
-	}()
-
-	wg.Wait()
-
-	// Calculate health score
-	snapshot.HealthScore, snapshot.HealthMessage = calculateHealthScore(snapshot)
-
-	return snapshot
-}
-
-func calculateHealthScore(s MetricsSnapshot) (int, string) {
-	score := 100
-	var issues []string
-
-	// CPU penalty (30% weight)
-	if s.CPUPercent > 90 {
-		score -= 30
-		issues = append(issues, "High CPU")
-	} else if s.CPUPercent > 70 {
-		score -= 15
-		issues = append(issues, "Elevated CPU")
-	}
-
-	// Memory penalty (25% weight)
-	if s.MemPercent > 90 {
-		score -= 25
-		issues = append(issues, "High Memory")
-	} else if s.MemPercent > 80 {
-		score -= 12
-		issues = append(issues, "Elevated Memory")
-	}
-
-	// Disk penalty (20% weight)
-	for _, d := range s.Disks {
-		if d.UsedPercent > 95 {
-			score -= 20
-			issues = append(issues, fmt.Sprintf("Disk %s Critical", d.Device))
-			break
-		} else if d.UsedPercent > 85 {
-			score -= 10
-			issues = append(issues, fmt.Sprintf("Disk %s Low", d.Device))
-			break
-		}
-	}
-
-	// Swap penalty (10% weight)
-	if s.SwapPercent > 80 {
-		score -= 10
-		issues = append(issues, "High Swap")
-	}
-
-	if score < 0 {
-		score = 0
-	}
-
-	msg := "Excellent"
-	if len(issues) > 0 {
-		msg = strings.Join(issues, ", ")
-	} else if score >= 90 {
-		msg = "Excellent"
-	} else if score >= 70 {
-		msg = "Good"
-	} else if score >= 50 {
-		msg = "Fair"
-	} else {
-		msg = "Poor"
-	}
-
-	return score, msg
-}
-
-// Model for Bubble Tea
 type model struct {
-	collector  *Collector
-	metrics    MetricsSnapshot
-	animFrame  int
-	catHidden  bool
-	ready      bool
-	collecting bool
-	width      int
-	height     int
+	collector     *Collector
+	width         int
+	height        int
+	metrics       MetricsSnapshot
+	errMessage    string
+	schedule      collectionSchedule
+	fullCollected bool
+	lastUpdated   time.Time
+	collecting    bool
+	animFrame     int
+	catHidden     bool // true = hidden, false = visible
+	cpuCores      int  // how many CPU cores to list; 0 = all
 }
 
-// Messages
-type tickMsg time.Time
-type metricsMsg MetricsSnapshot
+// padViewToHeight ensures the rendered frame always overwrites the full
+// terminal region by padding with empty lines up to the current height.
+func padViewToHeight(view string, height int) string {
+	if height <= 0 {
+		return view
+	}
+
+	contentHeight := lipgloss.Height(view)
+	if contentHeight >= height {
+		return view
+	}
+
+	return view + strings.Repeat("\n", height-contentHeight)
+}
 
 func newModel() model {
 	return model{
-		collector: NewCollector(),
-		animFrame: 0,
+		collector: NewCollector(processWatchOptionsFromFlags()),
+		catHidden: loadCatHidden(),
+		cpuCores:  loadCPUCores(),
 	}
+}
+
+func processWatchOptionsFromFlags() ProcessWatchOptions {
+	return ProcessWatchOptions{
+		Enabled:      *procCPUAlerts,
+		CPUThreshold: *procCPUThreshold,
+		Window:       *procCPUWindow,
+	}
+}
+
+func validateFlags() error {
+	if *procCPUThreshold < 0 {
+		return fmt.Errorf("--proc-cpu-threshold must be >= 0")
+	}
+	if *procCPUWindow <= 0 {
+		return fmt.Errorf("--proc-cpu-window must be > 0")
+	}
+	return nil
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(
-		m.collectMetrics(),
-		tickCmd(),
-	)
-}
-
-func tickCmd() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
-func (m model) collectMetrics() tea.Cmd {
-	return func() tea.Msg {
-		return metricsMsg(m.collector.Collect())
-	}
+	return tea.Batch(tickAfter(0), animTick())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "q", "esc", "ctrl+c":
 			return m, tea.Quit
-		case "c":
+		case "k":
+			// Toggle cat visibility and persist preference
 			m.catHidden = !m.catHidden
-		case "r":
-			m.collecting = true
-			return m, m.collectMetrics()
+			saveCatHidden(m.catHidden)
+			return m, nil
+		case "c":
+			// Cycle how many CPU cores the card lists (2 → 4 → 8 → all) and persist.
+			m.cpuCores = nextCPUCores(m.cpuCores)
+			saveCPUCores(m.cpuCores)
+			return m, nil
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		return m, nil
 	case tickMsg:
-		m.animFrame++
-		if m.animFrame%2 == 0 && !m.collecting {
-			return m, tea.Batch(
-				m.collectMetrics(),
-				tickCmd(),
-			)
+		if m.collecting {
+			return m, nil
 		}
-		return m, tickCmd()
-	case metricsMsg:
-		m.metrics = MetricsSnapshot(msg)
-		m.ready = true
+		m.collecting = true
+		return m, m.collectCmd(m.schedule.nextMode(time.Now()))
+	case collectionResult:
+		if msg.err != nil {
+			m.errMessage = msg.err.Error()
+		} else {
+			m.errMessage = ""
+		}
+		if !msg.data.CollectedAt.IsZero() {
+			m.metrics = msg.data
+			m.lastUpdated = msg.data.CollectedAt
+		}
+		if msg.mode == collectionFull && msg.err == nil {
+			m.fullCollected = true
+		}
 		m.collecting = false
+		delay := m.schedule.recordCompletion(msg, refreshInterval)
+		return m, tickAfter(delay)
+	case animTickMsg:
+		m.animFrame++
+		return m, animTickWithSpeed(m.metrics.CPU.Usage)
 	}
 	return m, nil
 }
 
 func (m model) View() string {
-	if !m.ready {
-		return "\n  Loading system metrics..."
+	if !m.schedule.hasSnapshot {
+		return "Loading..."
 	}
 
-	var b strings.Builder
-
-	// Header with mole animation
-	moleFrame := getMoleFrame(m.animFrame, m.catHidden)
-
-	b.WriteString("\n")
-	b.WriteString(titleStyle.Render("  🐹 Mole System Status"))
-	b.WriteString("  ")
-	b.WriteString(moleFrame)
-	b.WriteString("\n\n")
-
-	// Health score
-	healthColor := okStyle
-	if m.metrics.HealthScore < 50 {
-		healthColor = dangerStyle
-	} else if m.metrics.HealthScore < 70 {
-		healthColor = warnStyle
-	}
-	b.WriteString(fmt.Sprintf("  Health: %s  %s\n\n",
-		healthColor.Render(fmt.Sprintf("%d%%", m.metrics.HealthScore)),
-		dimStyle.Render(m.metrics.HealthMessage),
-	))
-
-	// System info
-	b.WriteString(headerStyle.Render("  📍 System"))
-	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("Host:"), valueStyle.Render(m.metrics.Hostname)))
-	b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("OS:"), valueStyle.Render(m.metrics.Platform)))
-	b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("Uptime:"), valueStyle.Render(formatDuration(m.metrics.Uptime))))
-	b.WriteString("\n")
-
-	// CPU
-	b.WriteString(headerStyle.Render("  ⚡ CPU"))
-	b.WriteString("\n")
-	cpuColor := getPercentColor(m.metrics.CPUPercent)
-	b.WriteString(fmt.Sprintf("  %s %s\n", labelStyle.Render("Model:"), valueStyle.Render(truncateString(m.metrics.CPUModel, 50))))
-	b.WriteString(fmt.Sprintf("  %s %s (%d cores)\n",
-		labelStyle.Render("Usage:"),
-		cpuColor.Render(fmt.Sprintf("%.1f%%", m.metrics.CPUPercent)),
-		m.metrics.CPUCores,
-	))
-	b.WriteString(fmt.Sprintf("  %s\n", renderProgressBar(m.metrics.CPUPercent, 30)))
-	b.WriteString("\n")
-
-	// Memory
-	b.WriteString(headerStyle.Render("  🧠 Memory"))
-	b.WriteString("\n")
-	memColor := getPercentColor(m.metrics.MemPercent)
-	b.WriteString(fmt.Sprintf("  %s %s / %s %s\n",
-		labelStyle.Render("RAM:"),
-		memColor.Render(formatBytes(m.metrics.MemUsed)),
-		valueStyle.Render(formatBytes(m.metrics.MemTotal)),
-		memColor.Render(fmt.Sprintf("(%.1f%%)", m.metrics.MemPercent)),
-	))
-	b.WriteString(fmt.Sprintf("  %s\n", renderProgressBar(m.metrics.MemPercent, 30)))
-	if m.metrics.SwapTotal > 0 {
-		b.WriteString(fmt.Sprintf("  %s %s / %s\n",
-			labelStyle.Render("Swap:"),
-			valueStyle.Render(formatBytes(m.metrics.SwapUsed)),
-			valueStyle.Render(formatBytes(m.metrics.SwapTotal)),
-		))
-	}
-	b.WriteString("\n")
-
-	// Disk
-	b.WriteString(headerStyle.Render("  💾 Disks"))
-	b.WriteString("\n")
-	for _, d := range m.metrics.Disks {
-		diskColor := getPercentColor(d.UsedPercent)
-		b.WriteString(fmt.Sprintf("  %s %s / %s %s\n",
-			labelStyle.Render(d.Device),
-			diskColor.Render(formatBytes(d.Used)),
-			valueStyle.Render(formatBytes(d.Total)),
-			diskColor.Render(fmt.Sprintf("(%.1f%%)", d.UsedPercent)),
-		))
-		b.WriteString(fmt.Sprintf("  %s\n", renderProgressBar(d.UsedPercent, 30)))
-	}
-	b.WriteString("\n")
-
-	// Top Processes
-	if len(m.metrics.TopProcesses) > 0 {
-		b.WriteString(headerStyle.Render("  📊 Top Processes"))
-		b.WriteString("\n")
-		for _, p := range m.metrics.TopProcesses {
-			b.WriteString(fmt.Sprintf("  %s %s (CPU: %.1f%%, Mem: %.1f%%)\n",
-				dimStyle.Render(fmt.Sprintf("[%d]", p.PID)),
-				valueStyle.Render(truncateString(p.Name, 20)),
-				p.CPU,
-				p.Memory,
-			))
-		}
-		b.WriteString("\n")
+	termWidth := m.width
+	if termWidth <= 0 {
+		termWidth = 80
 	}
 
-	// Network
-	if len(m.metrics.Networks) > 0 {
-		b.WriteString(headerStyle.Render("  🌐 Network"))
-		b.WriteString("\n")
-		for i, n := range m.metrics.Networks {
-			if i >= 3 {
-				break
+	header, mole := renderHeader(m.metrics, m.errMessage, m.animFrame, termWidth, m.catHidden)
+	alertBar := renderProcessAlertBar(
+		m.metrics.ProcessAlerts,
+		m.metrics.ProcessStale,
+		m.metrics.ProcessCollectedAt,
+		termWidth,
+	)
+
+	renderFrame := func(cpuCores int) string {
+		var cardContent string
+		if termWidth <= 80 {
+			cardWidth := termWidth
+			if cardWidth > 2 {
+				cardWidth -= 2
 			}
-			b.WriteString(fmt.Sprintf("  %s ↑%s ↓%s\n",
-				labelStyle.Render(truncateString(n.Name, 20)+":"),
-				valueStyle.Render(formatBytes(n.BytesSent)),
-				valueStyle.Render(formatBytes(n.BytesRecv)),
-			))
+			cards := buildCards(m.metrics, cardWidth, cpuCores, m.fullCollected)
+
+			var rendered []string
+			for i, c := range cards {
+				if i > 0 {
+					rendered = append(rendered, "")
+				}
+				rendered = append(rendered, renderCard(c, cardWidth))
+			}
+			cardContent = lipgloss.JoinVertical(lipgloss.Left, rendered...)
+		} else {
+			cardWidth := max(24, termWidth/2-4)
+			cards := buildCards(m.metrics, cardWidth, cpuCores, m.fullCollected)
+			cardContent = renderTwoColumns(cards, termWidth)
 		}
-		b.WriteString("\n")
+
+		// Combine header, mole, and cards with consistent spacing
+		parts := []string{header}
+		if alertBar != "" {
+			parts = append(parts, alertBar)
+		}
+		if mole != "" {
+			parts = append(parts, mole)
+		}
+		parts = append(parts, cardContent)
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
 	}
 
-	// Footer
-	b.WriteString(dimStyle.Render("  [q] quit  [r] refresh  [c] toggle mole"))
-	b.WriteString("\n")
-
-	return b.String()
+	// Every extra core is another card row, and the frame has no scrollback: on
+	// a 20-core Mac "all" adds ~18 lines and pushes the lower cards off a short
+	// window. Step the preference back down until the frame fits; the stored
+	// preference is untouched, so a taller window gets it back.
+	cpuCores := m.cpuCores
+	output := renderFrame(cpuCores)
+	for m.height > 0 && lipgloss.Height(output) > m.height && cpuCores != cpuCoresCycle[0] {
+		cpuCores = smallerCPUCores(cpuCores)
+		output = renderFrame(cpuCores)
+	}
+	return padViewToHeight(output, m.height)
 }
 
-func getMoleFrame(frame int, hidden bool) string {
-	if hidden {
-		return ""
+func (m model) collectCmd(mode collectionMode) tea.Cmd {
+	return func() tea.Msg {
+		return m.collector.collectMode(mode)
 	}
-	frames := []string{
-		"🐹",
-		"🐹.",
-		"🐹..",
-		"🐹...",
-	}
-	return frames[frame%len(frames)]
 }
 
-func renderProgressBar(percent float64, width int) string {
-	filled := int(percent / 100 * float64(width))
-	if filled > width {
-		filled = width
-	}
-	if filled < 0 {
-		filled = 0
-	}
-
-	color := okStyle
-	if percent > 85 {
-		color = dangerStyle
-	} else if percent > 70 {
-		color = warnStyle
-	}
-
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-	return color.Render(bar)
+func tickAfter(delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-func getPercentColor(percent float64) lipgloss.Style {
-	if percent > 85 {
-		return dangerStyle
-	} else if percent > 70 {
-		return warnStyle
-	}
-	return okStyle
+func animTick() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(time.Time) tea.Msg { return animTickMsg{} })
 }
 
-func formatBytes(bytes uint64) string {
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-	div, exp := uint64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+func animTickWithSpeed(cpuUsage float64) tea.Cmd {
+	// Higher CPU = faster animation.
+	interval := max(300-int(cpuUsage*2.5), 50)
+	return tea.Tick(time.Duration(interval)*time.Millisecond, func(time.Time) tea.Msg { return animTickMsg{} })
 }
 
-func formatDuration(d time.Duration) string {
-	days := int(d.Hours() / 24)
-	hours := int(d.Hours()) % 24
-	minutes := int(d.Minutes()) % 60
+// runJSONMode collects metrics once and outputs as JSON.
+func runJSONMode() {
+	collector := NewCollector(processWatchOptionsFromFlags())
 
-	if days > 0 {
-		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	data, err := collector.Collect()
+	if code := writeJSONSnapshot(os.Stdout, os.Stderr, data, err); code != 0 {
+		os.Exit(code)
 	}
-	if hours > 0 {
-		return fmt.Sprintf("%dh %dm", hours, minutes)
-	}
-	return fmt.Sprintf("%dm", minutes)
 }
 
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
-}
-
-// getWindowsVersion gets detailed Windows version using PowerShell
-func getWindowsVersion() string {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "powershell", "-Command",
-		"(Get-CimInstance Win32_OperatingSystem).Caption")
-	output, err := cmd.Output()
+// writeJSONSnapshot follows the watch stream and the dashboard: one failed
+// collector is reported on stderr, and the metrics that did succeed are still
+// printed and exit 0. A snapshot with no core metrics, or an encoding error, fails.
+func writeJSONSnapshot(stdout, stderr io.Writer, data MetricsSnapshot, err error) int {
 	if err != nil {
-		return "Windows"
+		_, _ = fmt.Fprintf(stderr, "status: collect failed: %v\n", err)
 	}
-	return strings.TrimSpace(string(output))
+	if !hasCoreMetrics(data) {
+		if err == nil {
+			_, _ = fmt.Fprintln(stderr, "status: collect failed: no metrics collected")
+		}
+		return 1
+	}
+
+	encoder := json.NewEncoder(stdout)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(data); err != nil {
+		_, _ = fmt.Fprintf(stderr, "error encoding JSON: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
-// getBatteryInfo gets battery info on Windows (for laptops)
-func getBatteryInfo() (int, bool, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
+// CollectedAt records the attempt even if every collector failed. Core metrics
+// establish a usable sample; idle CPU and an empty process list are valid too.
+func hasCoreMetrics(data MetricsSnapshot) bool {
+	if data.CPU.LogicalCPU > 0 || data.Memory.Total > 0 || data.ProcessCollectedAt != nil {
+		return true
+	}
+	for _, disk := range data.Disks {
+		if disk.Total > 0 {
+			return true
+		}
+	}
+	return false
+}
 
-	cmd := exec.CommandContext(ctx, "powershell", "-Command",
-		"(Get-CimInstance Win32_Battery).EstimatedChargeRemaining")
-	output, err := cmd.Output()
-	if err != nil {
-		return 0, false, false
+// runTUIMode runs the interactive terminal UI.
+func runTUIMode() {
+	p := tea.NewProgram(newModel(), tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "system status error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func parseWatchInterval(raw string) (time.Duration, error) {
+	if raw == "" {
+		return refreshInterval, nil
 	}
 
-	percent, err := strconv.Atoi(strings.TrimSpace(string(output)))
+	d, err := time.ParseDuration(raw)
 	if err != nil {
-		return 0, false, false
+		return 0, fmt.Errorf("invalid --interval %q (want e.g. 1s, 2s): %w", raw, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("invalid --interval %q (must be > 0)", raw)
+	}
+	return d, nil
+}
+
+// usageText is the help every other Mole subcommand prints by hand. The Go flag
+// package would otherwise render "Usage of /usr/local/bin/status-go:", naming a
+// bundled binary the user never typed, so the text is written out here instead.
+const usageText = `Usage: mo status [OPTIONS]
+
+Monitor system health. Without options it opens the interactive dashboard, and
+switches to a single JSON snapshot when stdout is not a terminal.
+
+Options:
+  --json                          Output one metrics snapshot as JSON
+  --watch                         Stream snapshots as newline-delimited JSON
+  --interval DURATION             With --watch, collection interval (default 1s)
+  --proc-cpu-alerts               Enable high-CPU process alerts (default true)
+  --proc-cpu-threshold PERCENT    Alert above this CPU percent (default 100)
+  --proc-cpu-window DURATION      Time above the threshold before alerting (default 5m)
+  -h, --help                      Show this help message
+
+Examples:
+  mo status                       Interactive dashboard
+  mo status --json                One machine-readable snapshot
+  mo status --watch --interval 2s Continuous NDJSON stream
+`
+
+// parseArgs applies Mole's CLI conventions to the flag package: help goes to
+// stdout and exits 0, and a bad invocation goes to stderr and exits 1 the way
+// every bash subcommand does, rather than the flag package's stderr-and-2.
+// It returns the exit code and whether main should keep running.
+func parseArgs(args []string, stdout, stderr io.Writer) (int, bool) {
+	flag.CommandLine.Init("mo status", flag.ContinueOnError)
+	// Parse must not print: this function decides which stream each message
+	// belongs on, and the default handler writes usage to stderr for both.
+	flag.CommandLine.SetOutput(io.Discard)
+	flag.CommandLine.Usage = func() {}
+
+	err := flag.CommandLine.Parse(args)
+	switch {
+	case errors.Is(err, flag.ErrHelp):
+		_, _ = fmt.Fprint(stdout, usageText)
+		return 0, false
+	case err != nil:
+		_, _ = fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, "Use 'mo status --help' for usage information")
+		return 1, false
 	}
 
-	// Check if charging
-	cmdStatus := exec.CommandContext(ctx, "powershell", "-Command",
-		"(Get-CimInstance Win32_Battery).BatteryStatus")
-	statusOutput, _ := cmdStatus.Output()
-	status, _ := strconv.Atoi(strings.TrimSpace(string(statusOutput)))
-	isCharging := status == 2 // 2 = AC Power
-
-	return percent, isCharging, true
+	if err := validateFlags(); err != nil {
+		_, _ = fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, "Use 'mo status --help' for usage information")
+		return 1, false
+	}
+	return 0, true
 }
 
 func main() {
-	p := tea.NewProgram(newModel(), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	if code, keepGoing := parseArgs(os.Args[1:], os.Stdout, os.Stderr); !keepGoing {
+		os.Exit(code)
 	}
+
+	if *watchMode {
+		interval, err := parseWatchInterval(*watchInterval)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, "Use 'mo status --help' for usage information")
+			os.Exit(1)
+		}
+		runWatchMode(interval)
+		return
+	}
+
+	if shouldUseJSONOutput(*jsonOutput, os.Stdout) {
+		runJSONMode()
+	} else {
+		runTUIMode()
+	}
+}
+
+func activeAlerts(alerts []ProcessAlert) []ProcessAlert {
+	var active []ProcessAlert
+	for _, alert := range alerts {
+		if alert.Status == "active" {
+			active = append(active, alert)
+		}
+	}
+	return active
 }

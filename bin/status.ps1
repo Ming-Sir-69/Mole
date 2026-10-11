@@ -5,7 +5,13 @@
 [CmdletBinding()]
 param(
     [Alias('h')]
-    [switch]$ShowHelp
+    [switch]$ShowHelp,
+
+    [switch]$Json,
+
+    [switch]$Watch,
+
+    [string]$Interval
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,23 +28,22 @@ function Show-StatusHelp {
     Write-Host ""
     Write-Host "$esc[1;35mmo status$esc[0m - Real-time system health monitor"
     Write-Host ""
-    Write-Host "$esc[33mUsage:$esc[0m mo status"
+    Write-Host "$esc[33mUsage:$esc[0m mo status [options]"
     Write-Host ""
     Write-Host "$esc[33mOptions:$esc[0m"
-    Write-Host "  --help     Show this help message"
+    Write-Host "  --json             Output one metrics snapshot as JSON"
+    Write-Host "  --watch            Stream snapshots as newline-delimited JSON"
+    Write-Host "  --interval=2s      With --watch, collection interval (default 1s)"
+    Write-Host "  --help             Show this help message"
     Write-Host ""
     Write-Host "$esc[33mDisplays:$esc[0m"
     Write-Host "  - System health score (0-100)"
-    Write-Host "  - CPU usage and model"
-    Write-Host "  - Memory and swap usage"
-    Write-Host "  - Disk space per drive"
-    Write-Host "  - Top processes by CPU"
-    Write-Host "  - Network interfaces"
+    Write-Host "  - CPU, Memory, Disk, Power, Processes and Network cards"
     Write-Host ""
     Write-Host "$esc[33mKeybindings:$esc[0m"
-    Write-Host "  c            Toggle mole animation"
-    Write-Host "  r            Force refresh"
-    Write-Host "  q            Quit"
+    Write-Host "  c            Cycle how many CPU cores are listed"
+    Write-Host "  k            Show or hide the mole"
+    Write-Host "  q / Esc      Quit"
     Write-Host ""
 }
 
@@ -55,4 +60,8 @@ if (-not $binPath) {
 }
 
 # Run the binary
-& $binPath
+$binArgs = @()
+if ($Json) { $binArgs += "--json" }
+if ($Watch) { $binArgs += "--watch" }
+if ($Interval) { $binArgs += "--interval=$Interval" }
+& $binPath @binArgs
