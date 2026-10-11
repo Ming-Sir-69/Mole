@@ -52,8 +52,8 @@ Describe "render-packaging.ps1" {
     It "Points Scoop and winget at the tagged zip and its checksum" {
         $scoop = Get-Content (Join-Path $script:Out "scoop\mole.json") -Raw | ConvertFrom-Json
         $scoop.version | Should -Be "1.31.0"
-        $scoop.url | Should -Be "https://github.com/tw93/Mole/releases/download/V1.31.0-windows/mole-1.31.0-x64.zip"
-        $scoop.hash | Should -Be $script:Hash
+        $scoop.architecture.'64bit'.url | Should -Be "https://github.com/tw93/Mole/releases/download/V1.31.0-windows/mole-1.31.0-x64.zip"
+        $scoop.architecture.'64bit'.hash | Should -Be $script:Hash
 
         $installer = Get-Content (Join-Path $script:Out "winget\manifests\t\tw93\Mole\1.31.0\tw93.Mole.installer.yaml") -Raw
         $installer | Should -Match "InstallerSha256: $($script:Hash)"
@@ -88,5 +88,37 @@ Describe "mo update for package-manager installs" {
 
     It "Returns nothing for a plain folder" {
         Get-PackageManagerUpgradeCommand -InstallDir "C:\Users\me\AppData\Local\Mole" | Should -BeNullOrEmpty
+    }
+}
+
+Describe "new-release-zip.ps1" {
+    It "Stores entry names with forward slashes, as winget's archive check requires" {
+        $source = Join-Path $TestDrive "zip-source"
+        New-Item -ItemType Directory -Path (Join-Path $source "bin\nested") -Force | Out-Null
+        Set-Content -Path (Join-Path $source "mole.ps1") -Value "#"
+        Set-Content -Path (Join-Path $source "bin\nested\tool.ps1") -Value "#"
+        $zip = Join-Path $TestDrive "release.zip"
+
+        & (Join-Path $script:ScriptsDir "new-release-zip.ps1") -SourceDir $source -Destination $zip
+
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
+        try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+        }
+        finally {
+            $archive.Dispose()
+        }
+        $names | Should -Contain "bin/nested/tool.ps1"
+        $names | Should -Contain "mole.ps1"
+        @($names | Where-Object { $_.Contains('\') }).Count | Should -Be 0
+    }
+
+    It "Is the only way the release scripts build a zip" {
+        foreach ($script in @("build-release.ps1", "sign-release.ps1")) {
+            $text = Get-Content (Join-Path $script:ScriptsDir $script) -Raw
+            $text | Should -Not -Match 'Compress-Archive|CreateFromDirectory'
+            $text | Should -Match 'new-release-zip\.ps1'
+        }
     }
 }

@@ -176,7 +176,7 @@ try {
     if (Test-Path -LiteralPath $signedZip) {
         Remove-Item -LiteralPath $signedZip -Force
     }
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($workDir, $signedZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+    & (Join-Path $PSScriptRoot "new-release-zip.ps1") -SourceDir $workDir -Destination $signedZip
     Move-Item -LiteralPath $signedZip -Destination $zip.FullName -Force
 
     & (Join-Path $PSScriptRoot "write-checksums.ps1") -Directory $assetDir -Files (@($zip.Name) + $tuiAssets)

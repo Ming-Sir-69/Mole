@@ -254,14 +254,7 @@ foreach ($dir in $dirsToInclude) {
 # Create ZIP archive
 $zipPath = Join-Path $releaseDir "$archiveName.zip"
 Write-Host "  Compressing to ZIP..." -ForegroundColor Gray
-
-if ($PSVersionTable.PSVersion.Major -ge 5) {
-    Compress-Archive -Path "$tempBuildDir\*" -DestinationPath $zipPath -CompressionLevel Optimal -Force
-} else {
-    # Fallback for older PowerShell
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    [System.IO.Compression.ZipFile]::CreateFromDirectory($tempBuildDir, $zipPath)
-}
+& (Join-Path $scriptDir "new-release-zip.ps1") -SourceDir $tempBuildDir -Destination $zipPath
 
 $zipSize = (Get-Item $zipPath).Length / 1MB
 Write-Host "  Created: $archiveName.zip ($([math]::Round($zipSize, 2)) MB)" -ForegroundColor Green
