@@ -21,8 +21,7 @@ BeforeAll {
     function Write-MoleWarning { param($Message) }
     function Write-MoleError { param($Message) }
     function Remove-FromUserPath { param($Directory) }
-    function Remove-StartMenuShortcut { param($ShortcutName) }
-    $script:ShortcutName = "Mole"
+    function Remove-StartMenuShortcut { param($InstallDir) $true }
 
     function New-CliTree {
         param([string]$Root)
@@ -98,5 +97,51 @@ Describe "install.ps1 -Uninstall" {
         Uninstall-Mole | Should -BeTrue
 
         Test-Path (Join-Path $appData "license.dat") | Should -BeTrue
+    }
+}
+
+Describe "Start menu shortcut removal" {
+    BeforeAll {
+        $installScript = Join-Path $script:WindowsDir "install.ps1"
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($installScript, [ref]$null, [ref]$null)
+        $definition = $ast.Find({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq "Remove-StartMenuShortcut"
+            }, $true)
+        $text = $definition.Extent.Text -replace '^function Remove-StartMenuShortcut', 'function Remove-ShortcutUnderTest'
+        . ([scriptblock]::Create($text))
+        Set-Item -Path "function:script:Remove-ShortcutUnderTest" -Value (Get-Item "function:Remove-ShortcutUnderTest").ScriptBlock
+
+        function New-TestShortcut {
+            param([string]$Path, [string]$Target, [string]$Arguments)
+            $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($Path)
+            $shortcut.TargetPath = $Target
+            $shortcut.Arguments = $Arguments
+            $shortcut.Save()
+        }
+    }
+
+    It "Removes this install's shortcut and keeps the Mole for Windows app's" {
+        $programs = Join-Path $TestDrive "Programs"
+        New-Item -ItemType Directory -Path $programs -Force | Out-Null
+        $install = Join-Path $TestDrive "mole-cli"
+        New-TestShortcut -Path (Join-Path $programs "Mole.lnk") -Target (Join-Path $TestDrive "Tw93.Mole\Mole.exe") -Arguments ""
+        New-TestShortcut -Path (Join-Path $programs "Mole CLI.lnk") -Target "powershell.exe" -Arguments "-NoExit -ExecutionPolicy Bypass -File `"$install\mole.ps1`""
+
+        Remove-ShortcutUnderTest -InstallDir $install -ProgramsPath $programs | Should -BeTrue
+
+        Test-Path (Join-Path $programs "Mole.lnk") | Should -BeTrue
+        Test-Path (Join-Path $programs "Mole CLI.lnk") | Should -BeFalse
+    }
+
+    It "Removes a 1.30.0 Mole.lnk that starts this install" {
+        $programs = Join-Path $TestDrive "Programs-legacy"
+        New-Item -ItemType Directory -Path $programs -Force | Out-Null
+        $install = Join-Path $TestDrive "legacy-install"
+        New-TestShortcut -Path (Join-Path $programs "Mole.lnk") -Target "powershell.exe" -Arguments "-NoExit -ExecutionPolicy Bypass -File `"$install\mole.ps1`""
+
+        Remove-ShortcutUnderTest -InstallDir $install -ProgramsPath $programs | Should -BeTrue
+
+        Test-Path (Join-Path $programs "Mole.lnk") | Should -BeFalse
     }
 }

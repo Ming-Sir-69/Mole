@@ -64,7 +64,8 @@ $InstallDir = $resolvedInvocation.InstallDir
 $AddToPath = [switch]$resolvedInvocation.AddToPath
 $CreateShortcut = [switch]$resolvedInvocation.CreateShortcut
 $script:CoreDir = Join-Path $script:SourceDir "lib\core"
-$script:ShortcutName = "Mole"
+# "Mole" is the Mole for Windows app's Start menu entry; the CLI uses its own name.
+$script:ShortcutName = "Mole CLI"
 
 . (Join-Path $script:CoreDir "version.ps1")
 $script:VERSION = Get-MoleVersionString -RootDir $script:SourceDir
@@ -306,25 +307,35 @@ function New-StartMenuShortcut {
     }
 }
 
+# Removes the Start menu shortcut this install created: "Mole CLI.lnk", or
+# "Mole.lnk" from 1.30.0, and only when it starts this install's mole.ps1.
+# A "Mole.lnk" that points anywhere else belongs to the Mole for Windows app.
 function Remove-StartMenuShortcut {
-    param([string]$ShortcutName)
+    param(
+        [string]$InstallDir,
+        [string]$ProgramsPath = (Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs")
+    )
 
-    $startMenuPath = [Environment]::GetFolderPath("StartMenu")
-    $programsPath = Join-Path $startMenuPath "Programs"
-    $shortcutPath = Join-Path $programsPath "$ShortcutName.lnk"
-
-    if (Test-Path $shortcutPath) {
+    $moleScript = Join-Path $InstallDir "mole.ps1"
+    $shell = New-Object -ComObject WScript.Shell
+    foreach ($name in @("Mole CLI", "Mole")) {
+        $shortcutPath = Join-Path $ProgramsPath "$name.lnk"
+        if (-not (Test-Path -LiteralPath $shortcutPath)) {
+            continue
+        }
+        $arguments = $shell.CreateShortcut($shortcutPath).Arguments
+        if (-not $arguments -or $arguments.IndexOf($moleScript, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+            continue
+        }
         try {
-            Remove-Item $shortcutPath -Force
+            Remove-Item -LiteralPath $shortcutPath -Force
             Write-Success "Removed shortcut: $shortcutPath"
-            return $true
         }
         catch {
             Write-MoleError "Failed to remove shortcut: $_"
             return $false
         }
     }
-
     return $true
 }
 
@@ -570,7 +581,7 @@ function Uninstall-Mole {
     Remove-FromUserPath -Directory $installPath
 
     # Remove shortcut
-    Remove-StartMenuShortcut -ShortcutName $script:ShortcutName
+    $null = Remove-StartMenuShortcut -InstallDir $installPath
 
     # Remove only what Mole installed; another app may share the folder
     # (Mole for Windows keeps its license and settings in %LOCALAPPDATA%\Mole).
