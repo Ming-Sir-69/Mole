@@ -2,6 +2,7 @@
 # System status monitor wrapper
 
 #Requires -Version 5.1
+[CmdletBinding()]
 param(
     [Alias('h')]
     [switch]$ShowHelp

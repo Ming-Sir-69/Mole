@@ -2,6 +2,7 @@
 # Disk space analyzer wrapper
 
 #Requires -Version 5.1
+[CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [string]$Path,

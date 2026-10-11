@@ -2,6 +2,7 @@
 # Removes Mole from the current installation directory.
 
 #Requires -Version 5.1
+[CmdletBinding()]
 param(
     [Alias('h')]
     [switch]$ShowHelp
@@ -35,6 +36,13 @@ if ($ShowHelp) {
 if (-not (Test-Path $installScript)) {
     Write-Host "Installer not found at: $installScript" -ForegroundColor Red
     exit 1
+}
+
+# Removing Mole is not undoable, so it is never a side effect of a typo.
+$answer = Read-Host "Remove Mole from $windowsDir? (y/N)"
+if ($answer -ne "y" -and $answer -ne "Y") {
+    Write-Host "Cancelled"
+    exit 0
 }
 
 & $installScript -InstallDir $windowsDir -Uninstall

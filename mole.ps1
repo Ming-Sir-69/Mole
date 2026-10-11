@@ -168,6 +168,39 @@ function Show-MainMenu {
 # Command Router
 # ============================================================================
 
+# Maps a command-line flag (dry-run, help, h) to the parameter its command
+# script declares. A flag nothing declares is refused rather than passed on:
+# scripts without [CmdletBinding()] ignore unknown parameters, so
+# `mo remove --help` used to uninstall Mole.
+function Resolve-CommandParameterName {
+    param(
+        $Parameters,
+        [string]$Flag
+    )
+
+    $common = @([System.Management.Automation.PSCmdlet]::CommonParameters) +
+        @([System.Management.Automation.PSCmdlet]::OptionalCommonParameters)
+    foreach ($parameter in $Parameters.Values) {
+        if ($common -contains $parameter.Name) {
+            continue
+        }
+        if ($parameter.Name -eq $Flag -or $parameter.Aliases -contains $Flag) {
+            return $parameter.Name
+        }
+    }
+
+    # --help and --debug are spelled the same for every command.
+    $synonyms = @{ "help" = "ShowHelp"; "debug" = "DebugMode" }
+    if ($synonyms.ContainsKey($Flag)) {
+        foreach ($parameter in $Parameters.Values) {
+            if ($parameter.Name -eq $synonyms[$Flag]) {
+                return $parameter.Name
+            }
+        }
+    }
+    return $null
+}
+
 function Invoke-MoleCommand {
     param(
         [string]$CommandName,
@@ -187,6 +220,7 @@ function Invoke-MoleCommand {
     # This properly handles switch parameters passed as strings
     $argCount = if ($null -eq $Arguments) { 0 } else { @($Arguments).Count }
     if ($argCount -gt 0) {
+        $declared = (Get-Command -Name $scriptPath -CommandType ExternalScript).Parameters
         # Build a hashtable for splatting
         $splatParams = @{}
         $positionalArgs = @()
@@ -197,12 +231,24 @@ function Invoke-MoleCommand {
 
             if ($cleanArg -match '^-{1,2}([\w-]+)$') {
                 # It's a switch parameter (e.g., -DryRun or --dry-run)
-                $paramName = $Matches[1]
+                $paramName = Resolve-CommandParameterName -Parameters $declared -Flag $Matches[1]
+                if (-not $paramName) {
+                    Write-MoleError "Unknown option for mo ${CommandName}: $cleanArg"
+                    Write-Host "Run 'mo $CommandName --help' to see its options"
+                    $script:MoleExitCode = 2
+                    return
+                }
                 $splatParams[$paramName] = $true
             }
             elseif ($cleanArg -match '^-{1,2}([\w-]+)[=:](.+)$') {
                 # It's a named parameter with value (e.g., --name=value)
-                $paramName = $Matches[1]
+                $paramName = Resolve-CommandParameterName -Parameters $declared -Flag $Matches[1]
+                if (-not $paramName) {
+                    Write-MoleError "Unknown option for mo ${CommandName}: $cleanArg"
+                    Write-Host "Run 'mo $CommandName --help' to see its options"
+                    $script:MoleExitCode = 2
+                    return
+                }
                 $paramValue = $Matches[2].Trim("'`"")
                 $splatParams[$paramName] = $paramValue
             }
@@ -328,6 +374,7 @@ function Main {
 }
 
 # Run
+$script:MoleExitCode = 0
 try {
     Main
 }
@@ -339,4 +386,7 @@ catch {
 }
 finally {
     Clear-TempFiles
+}
+if ($script:MoleExitCode -ne 0) {
+    exit $script:MoleExitCode
 }
