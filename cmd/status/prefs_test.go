@@ -15,7 +15,7 @@ import (
 // exactly this scenario. t.Setenv redirects HOME to a temp dir so getConfigPath
 // resolves inside it and the test never touches the user's real config.
 func TestSavePrefPreservesOtherKeys(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	savePref("cat_hidden", "true")
 	savePref("cpu_cores", "8")
@@ -31,7 +31,7 @@ func TestSavePrefPreservesOtherKeys(t *testing.T) {
 
 // TestCatHiddenRoundTrip checks the typed accessors still behave like before.
 func TestCatHiddenRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	if loadCatHidden() {
 		t.Fatal("cat_hidden should default to false when no file exists")
@@ -48,7 +48,7 @@ func TestCatHiddenRoundTrip(t *testing.T) {
 
 // TestLoadPrefsIgnoresBlanksAndComments keeps the file hand-editable.
 func TestLoadPrefsIgnoresBlanksAndComments(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 
 	// Seed a file with a comment, a blank line, and a malformed line.
 	savePref("cat_hidden", "true")
@@ -64,7 +64,7 @@ func TestLoadPrefsIgnoresBlanksAndComments(t *testing.T) {
 // savePref together. Without the flock, this loses keys.
 func TestSavePrefConcurrentProcessesPreserveEveryKey(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	const writers = 16
 	barrier := filepath.Join(home, "barrier")
 	readyDir := filepath.Join(home, "ready")
@@ -144,4 +144,13 @@ func TestSavePrefProcessHelper(t *testing.T) {
 		}
 	}
 	savePref(os.Getenv("MOLE_PREFS_TEST_KEY"), os.Getenv("MOLE_PREFS_TEST_VALUE"))
+}
+
+// setTestHome points os.UserHomeDir at dir: it reads HOME on Unix and
+// USERPROFILE on Windows, so setting only HOME lets a Windows run read and
+// write the real profile's status_prefs.
+func setTestHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 }
