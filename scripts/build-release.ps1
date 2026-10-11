@@ -56,7 +56,8 @@ function Show-BuildHelp {
     Write-Host ""
     Write-Host "Output:"
     Write-Host "  release/mole-<version>-x64.zip        Portable archive"
-    Write-Host "  release/mole-<version>-x64.exe        Standalone executable"
+    Write-Host "  release/analyze-windows-x64.exe       Disk analyzer TUI"
+    Write-Host "  release/status-windows-x64.exe        Status TUI"
     Write-Host "  release/SHA256SUMS.txt                 Hash file for verification"
     Write-Host ""
 }
@@ -84,7 +85,7 @@ Write-Host ""
 # Pre-flight Checks
 # ============================================================================
 
-Write-Host "[1/7] Running pre-flight checks..." -ForegroundColor Cyan
+Write-Host "[1/6] Running pre-flight checks..." -ForegroundColor Cyan
 
 # Check Go installation
 $goVersion = & go version 2>&1
@@ -115,7 +116,7 @@ Write-Host ""
 # ============================================================================
 
 if (-not $SkipTests) {
-    Write-Host "[2/7] Running tests..." -ForegroundColor Cyan
+    Write-Host "[2/6] Running tests..." -ForegroundColor Cyan
     
     $testScript = Join-Path $projectRoot "scripts\test.ps1"
     if (Test-Path $testScript) {
@@ -135,7 +136,7 @@ if (-not $SkipTests) {
     }
     Write-Host ""
 } else {
-    Write-Host "[2/7] Skipping tests (--SkipTests flag)" -ForegroundColor Yellow
+    Write-Host "[2/6] Skipping tests (--SkipTests flag)" -ForegroundColor Yellow
     Write-Host ""
 }
 
@@ -143,7 +144,7 @@ if (-not $SkipTests) {
 # Clean Release Directory
 # ============================================================================
 
-Write-Host "[3/7] Preparing release directory..." -ForegroundColor Cyan
+Write-Host "[3/6] Preparing release directory..." -ForegroundColor Cyan
 
 if (Test-Path $releaseDir) {
     Write-Host "  Cleaning existing release directory..." -ForegroundColor Gray
@@ -158,7 +159,7 @@ Write-Host ""
 # Build Go Binaries
 # ============================================================================
 
-Write-Host "[4/7] Building Go binaries..." -ForegroundColor Cyan
+Write-Host "[4/6] Building Go binaries..." -ForegroundColor Cyan
 
 Push-Location $projectRoot
 try {
@@ -192,6 +193,18 @@ try {
     }
     $statusSize = (Get-Item "$binDir\status.exe").Length / 1KB
     Write-Host "  Built: status.exe ($([math]::Round($statusSize, 0)) KB)" -ForegroundColor Green
+
+    # mo.exe is the launcher package managers put on PATH; it sits at the
+    # archive root next to mole.ps1, so it is built outside bin\.
+    Write-Host "  Building mo.exe..." -ForegroundColor Gray
+    $launcherDir = Join-Path $releaseDir "launcher"
+    New-Item -ItemType Directory -Path $launcherDir -Force | Out-Null
+    & go build -ldflags "-s -w" -o "$launcherDir\mo.exe" "./cmd/mo/"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Failed to build mo.exe" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  Built: mo.exe" -ForegroundColor Green
 }
 finally {
     Pop-Location
@@ -202,7 +215,7 @@ Write-Host ""
 # Create Portable ZIP Archive
 # ============================================================================
 
-Write-Host "[5/7] Creating portable ZIP archive..." -ForegroundColor Cyan
+Write-Host "[5/6] Creating portable ZIP archive..." -ForegroundColor Cyan
 
 $tempBuildDir = Join-Path $releaseDir "temp-build"
 New-Item -ItemType Directory -Path $tempBuildDir -Force | Out-Null
@@ -215,7 +228,8 @@ $filesToInclude = @(
     @{Source = "$projectRoot\go.sum"; Dest = "$tempBuildDir\go.sum"},
     @{Source = "$projectRoot\VERSION"; Dest = "$tempBuildDir\VERSION"},
     @{Source = "$projectRoot\LICENSE"; Dest = "$tempBuildDir\LICENSE"},
-    @{Source = "$projectRoot\README.md"; Dest = "$tempBuildDir\README.md"}
+    @{Source = "$projectRoot\README.md"; Dest = "$tempBuildDir\README.md"},
+    @{Source = "$releaseDir\launcher\mo.exe"; Dest = "$tempBuildDir\mo.exe"}
 )
 
 foreach ($file in $filesToInclude) {
@@ -252,76 +266,28 @@ if ($PSVersionTable.PSVersion.Major -ge 5) {
 $zipSize = (Get-Item $zipPath).Length / 1MB
 Write-Host "  Created: $archiveName.zip ($([math]::Round($zipSize, 2)) MB)" -ForegroundColor Green
 
-# Cleanup temp directory
+# Cleanup temp directories
 Remove-Item $tempBuildDir -Recurse -Force
+Remove-Item (Join-Path $releaseDir "launcher") -Recurse -Force
 Write-Host ""
 
 # ============================================================================
-# Create Standalone EXE (Wrapper Script)
+# TUI Assets and Checksums
 # ============================================================================
 
-Write-Host "[6/7] Creating standalone executable..." -ForegroundColor Cyan
-Write-Host "  Note: Creating PowerShell wrapper (requires PowerShell on target system)" -ForegroundColor Yellow
+Write-Host "[6/6] Writing TUI assets and checksums..." -ForegroundColor Cyan
 
-# Create a simple batch wrapper that calls PowerShell
-$exePath = Join-Path $releaseDir "$archiveName.exe"
-$wrapperScript = @"
-@echo off
-REM Mole Windows Launcher
-REM Version: $Version
-
-REM Check PowerShell availability
-where pwsh >nul 2>&1
-if %ERRORLEVEL% EQU 0 (
-    pwsh -NoProfile -ExecutionPolicy Bypass -File "%~dp0mole.ps1" %*
-) else (
-    where powershell >nul 2>&1
-    if %ERRORLEVEL% EQU 0 (
-        powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0mole.ps1" %*
-    ) else (
-        echo Error: PowerShell is not installed
-        echo Please install PowerShell from: https://aka.ms/powershell
-        exit /b 1
-    )
+# The raw TUI executables are what lib/core/tui_binaries.ps1 downloads, and
+# SHA256SUMS.txt must list every asset it may verify.
+$tuiAssets = @(
+    @{ Source = Join-Path $binDir "analyze.exe"; Name = "analyze-windows-x64.exe" },
+    @{ Source = Join-Path $binDir "status.exe"; Name = "status-windows-x64.exe" }
 )
-"@
-
-# For now, we'll create a batch file launcher
-# TODO: Use PS2EXE or similar for true standalone executable
-$batPath = Join-Path $releaseDir "mole.bat"
-Set-Content -Path $batPath -Value $wrapperScript -Encoding ASCII
-
-Write-Host "  Created: mole.bat (PowerShell wrapper)" -ForegroundColor Green
-Write-Host "  TODO: True standalone EXE requires PS2EXE or compilation" -ForegroundColor Yellow
-Write-Host ""
-
-# ============================================================================
-# Generate SHA256 Checksums
-# ============================================================================
-
-Write-Host "[7/7] Generating SHA256 checksums..." -ForegroundColor Cyan
-
-$hashFile = Join-Path $releaseDir "SHA256SUMS.txt"
-$hashContent = @()
-
-# Calculate hash for ZIP
-$zipHash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
-$hashContent += "$zipHash  $archiveName.zip"
-Write-Host "  $archiveName.zip" -ForegroundColor Gray
-Write-Host "    SHA256: $zipHash" -ForegroundColor Gray
-
-# Calculate hash for BAT (if exists)
-if (Test-Path $batPath) {
-    $batHash = (Get-FileHash $batPath -Algorithm SHA256).Hash.ToLower()
-    $hashContent += "$batHash  mole.bat"
-    Write-Host "  mole.bat" -ForegroundColor Gray
-    Write-Host "    SHA256: $batHash" -ForegroundColor Gray
+foreach ($tui in $tuiAssets) {
+    Copy-Item -LiteralPath $tui.Source -Destination (Join-Path $releaseDir $tui.Name) -Force
+    Write-Host "  $($tui.Name)" -ForegroundColor Gray
 }
-
-# Save hash file
-Set-Content -Path $hashFile -Value ($hashContent -join "`n") -Encoding UTF8
-Write-Host ""
-Write-Host "  Checksums saved to: SHA256SUMS.txt" -ForegroundColor Green
+& (Join-Path $scriptDir "write-checksums.ps1") -Directory $releaseDir -Files (@("$archiveName.zip") + ($tuiAssets | ForEach-Object { $_.Name }))
 Write-Host ""
 
 # ============================================================================
@@ -342,8 +308,7 @@ Get-ChildItem $releaseDir | ForEach-Object {
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Test the ZIP archive: Expand-Archive release\$archiveName.zip -DestinationPath test\" -ForegroundColor Gray
-Write-Host "  2. Create GitHub release and upload artifacts" -ForegroundColor Gray
-Write-Host "  3. Submit to package managers (WinGet, Chocolatey, Scoop)" -ForegroundColor Gray
+Write-Host "  2. Follow RELEASE.md to sign and publish" -ForegroundColor Gray
 Write-Host ""
 Write-Host "To verify integrity:" -ForegroundColor Cyan
 Write-Host "  sha256sum -c release\SHA256SUMS.txt" -ForegroundColor Gray

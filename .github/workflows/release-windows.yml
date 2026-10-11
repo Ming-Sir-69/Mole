@@ -12,13 +12,13 @@ on:
         required: true
         type: string
 
-# A stable Windows release must never become the repository's "latest"
-# release: the macOS installer and `mo update` resolve stable versions through
-# releases/latest, so every release below sets make_latest to false.
+# The workflow only creates a draft. The maintainer signs the assets with the
+# code-signing certificate (scripts/sign-release.ps1), uploads them and
+# publishes the draft; see RELEASE.md. A Windows release must never become the
+# repository's "latest" release: the macOS installer and `mo update` resolve
+# stable versions through releases/latest, so make_latest stays false.
 permissions:
   contents: write  # Required for creating releases
-  id-token: write  # Required for build provenance attestations
-  attestations: write
 
 jobs:
   build-windows:
@@ -74,30 +74,11 @@ jobs:
           }
       
 
-      - name: Install PS2EXE
-        shell: pwsh
-        run: |
-          Write-Host "Installing PS2EXE module..."
-          Install-Module -Name ps2exe -Force -Scope CurrentUser -SkipPublisherCheck
-      
       - name: Build release artifacts (ZIP)
         shell: pwsh
         run: |
           & scripts\build-release.ps1 -Version ${{ steps.version.outputs.VERSION }}
 
-      - name: Prepare raw TUI binary assets
-        shell: pwsh
-        run: |
-          Copy-Item "bin\analyze.exe" "release\analyze-windows-x64.exe" -Force
-          Copy-Item "bin\status.exe" "release\status-windows-x64.exe" -Force
-      
-
-      - name: Build standalone EXE
-        shell: pwsh
-        run: |
-          & scripts\build-exe.ps1 -Version ${{ steps.version.outputs.VERSION }}
-        continue-on-error: true
-      
       - name: List release artifacts
         shell: pwsh
         run: |
@@ -115,13 +96,6 @@ jobs:
           if-no-files-found: error
       
 
-      - name: Upload EXE artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mole-${{ steps.version.outputs.VERSION }}-x64-exe
-          path: release/mole-${{ steps.version.outputs.VERSION }}-x64.exe
-          if-no-files-found: ignore
-      
       - name: Upload checksums
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -148,34 +122,24 @@ jobs:
             "release/status-windows-x64.exe",
             "release/SHA256SUMS.txt"
           )
-          $optionalExe = "release/mole-${{ steps.version.outputs.VERSION }}-x64.exe"
-          if (Test-Path $optionalExe) {
-            $files += $optionalExe
-          }
           "files<<EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           $files | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "EOF" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       
-      - name: Generate artifact attestation
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: ${{ steps.release_files.outputs.files }}
-
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           name: ${{ github.ref_name }}
           files: ${{ steps.release_files.outputs.files }}
-          draft: false
+          draft: true
           prerelease: ${{ steps.version.outputs.PRERELEASE }}
           make_latest: false
           generate_release_notes: false
           body: |
             ## Mole for Windows (CLI) ${{ steps.version.outputs.VERSION }}
 
-            **Download:** `mole-${{ steps.version.outputs.VERSION }}-x64.zip` (portable) or `.exe` (launcher)
+            **Download:** `mole-${{ steps.version.outputs.VERSION }}-x64.zip`
             **TUI assets:** `analyze-windows-x64.exe` and `status-windows-x64.exe`
 
             **Install:**
@@ -187,6 +151,6 @@ jobs:
 
             This release does not change the macOS release channel.
 
-            **Verify:** check `SHA256SUMS.txt`, or `gh attestation verify <file> --repo tw93/Mole`.
+            **Verify:** every script and executable is signed by Faberon Technology Limited; compare downloads with `SHA256SUMS.txt`.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
