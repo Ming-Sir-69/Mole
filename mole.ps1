@@ -43,10 +43,22 @@ function Show-Version {
     $windows = Get-WindowsVersion
     Write-Host "Mole version $($info.Version)"
     Write-Host "Windows: $($windows.Name) $($windows.Version)"
-    Write-Host "Architecture: $env:PROCESSOR_ARCHITECTURE"
+    Write-Host "Architecture: $(Get-NativeArchitecture)"
     Write-Host "PowerShell: $($info.PowerShell)"
     Write-Host "Disk Free: $(Get-FreeSpace)"
     Write-Host "Install: $(Get-MoleInstallMethod -RootDir $script:MOLE_ROOT)"
+}
+
+# The machine's own architecture. An x64 process on ARM64 Windows (mo.exe
+# runs PowerShell under emulation) sees AMD64 in its environment, so read the
+# system-wide value Windows keeps in the registry.
+function Get-NativeArchitecture {
+    $key = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment"
+    $native = (Get-ItemProperty -Path $key -Name PROCESSOR_ARCHITECTURE -ErrorAction SilentlyContinue).PROCESSOR_ARCHITECTURE
+    if ($native) {
+        return $native
+    }
+    return $env:PROCESSOR_ARCHITECTURE
 }
 
 # How this copy was installed, by the folder each channel installs into.
