@@ -68,7 +68,6 @@ function Get-MoleInstallMethod {
     $path = $RootDir.TrimEnd('\') + '\'
     if ($path -like "*\Microsoft\WinGet\Packages\tw93.Mole_*") { return "winget" }
     if ($path -like "*\scoop\apps\mole\*") { return "Scoop" }
-    if ($path -like "*\chocolatey\lib\mole\*") { return "Chocolatey" }
     if (Test-Path -LiteralPath (Join-Path $RootDir ".git")) { return "Source" }
     return "Portable"
 }

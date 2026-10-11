@@ -1,4 +1,4 @@
-# Mole Windows - renders the winget, Scoop and Chocolatey manifests for one
+# Mole Windows - renders the winget and Scoop manifests for one
 # published release from the templates in packaging/.
 #
 #   .\scripts\render-packaging.ps1 -Version 1.31.0 -SumsFile release\SHA256SUMS.txt
@@ -56,10 +56,7 @@ $templates = @(
     @{ From = "winget\tw93.Mole.yaml"; To = "winget\manifests\t\tw93\Mole\$Version\tw93.Mole.yaml" },
     @{ From = "winget\tw93.Mole.installer.yaml"; To = "winget\manifests\t\tw93\Mole\$Version\tw93.Mole.installer.yaml" },
     @{ From = "winget\tw93.Mole.locale.en-US.yaml"; To = "winget\manifests\t\tw93\Mole\$Version\tw93.Mole.locale.en-US.yaml" },
-    @{ From = "scoop\mole.json"; To = "scoop\mole.json" },
-    @{ From = "chocolatey\mole.nuspec"; To = "chocolatey\mole.nuspec" },
-    @{ From = "chocolatey\tools\chocolateyinstall.ps1"; To = "chocolatey\tools\chocolateyinstall.ps1" },
-    @{ From = "chocolatey\tools\chocolateyuninstall.ps1"; To = "chocolatey\tools\chocolateyuninstall.ps1" }
+    @{ From = "scoop\mole.json"; To = "scoop\mole.json" }
 )
 
 $utf8 = New-Object System.Text.UTF8Encoding $false

@@ -43,7 +43,7 @@ Describe "render-packaging.ps1" {
 
     It "Fills every placeholder in every manifest" {
         $files = @(Get-ChildItem -Path $script:Out -Recurse -File)
-        $files.Count | Should -Be 7
+        $files.Count | Should -Be 4
         foreach ($file in $files) {
             [System.IO.File]::ReadAllText($file.FullName) | Should -Not -Match '\{\{'
         }
@@ -80,8 +80,7 @@ Describe "mo update for package-manager installs" {
 
     It "Names the upgrade command for <Manager>" -ForEach @(
         @{ Manager = "winget"; Dir = "C:\Users\me\AppData\Local\Microsoft\WinGet\Packages\tw93.Mole_Microsoft.Winget.Source_8wekyb3d8bbwe"; Expected = "winget upgrade tw93.Mole" },
-        @{ Manager = "Scoop"; Dir = "C:\Users\me\scoop\apps\mole\1.31.0"; Expected = "scoop update mole" },
-        @{ Manager = "Chocolatey"; Dir = "C:\ProgramData\chocolatey\lib\mole\tools"; Expected = "choco upgrade mole" }
+        @{ Manager = "Scoop"; Dir = "C:\Users\me\scoop\apps\mole\1.31.0"; Expected = "scoop update mole" }
     ) {
         Get-PackageManagerUpgradeCommand -InstallDir $Dir | Should -Be $Expected
     }

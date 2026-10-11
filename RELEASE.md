@@ -15,7 +15,7 @@ Every Windows release keeps `make_latest: false`. The macOS installer and `mo up
 
 | File | Purpose |
 |---|---|
-| `mole-<version>-x64.zip` | What winget, Scoop and Chocolatey install; `mo.exe` at its root is what they put on PATH. Not advertised as a download of its own |
+| `mole-<version>-x64.zip` | What winget and Scoop install; `mo.exe` at its root is what they put on PATH. Not advertised as a download of its own |
 | `analyze-windows-x64.exe`, `status-windows-x64.exe` | TUIs that source installs download on first use |
 | `SHA256SUMS.txt` | Checksums of the three files above; the TUI download refuses a file that does not match |
 
@@ -61,4 +61,4 @@ Then check:
 
 ## 5. Package managers
 
-Render and submit the winget, Scoop and Chocolatey manifests as described in `packaging/README.md`.
+Render and submit the winget and Scoop manifests as described in `packaging/README.md`.

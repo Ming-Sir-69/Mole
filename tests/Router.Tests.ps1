@@ -77,7 +77,7 @@ Describe "mo --help and --version" {
         $output = (& powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$($script:Mole)' '--version'" 2>&1 | Out-String)
         $output | Should -Match "Mole version \d+\.\d+\.\d+"
         $output | Should -Match "Architecture: "
-        $output | Should -Match "Install: (Source|Portable|winget|Scoop|Chocolatey)"
+        $output | Should -Match "Install: (Source|Portable|winget|Scoop)"
     }
 }
 

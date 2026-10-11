@@ -139,7 +139,7 @@ if ($ShowHelp) {
     return
 }
 
-# The upgrade command for a copy installed by winget, Scoop or Chocolatey,
+# The upgrade command for a copy installed by winget or Scoop,
 # recognized by the folder each one installs into; $null otherwise.
 function Get-PackageManagerUpgradeCommand {
     param([string]$InstallDir)
@@ -150,9 +150,6 @@ function Get-PackageManagerUpgradeCommand {
     }
     if ($path -like "*\scoop\apps\mole\*") {
         return "scoop update mole"
-    }
-    if ($path -like "*\chocolatey\lib\mole\*") {
-        return "choco upgrade mole"
     }
     return $null
 }

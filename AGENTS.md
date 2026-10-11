@@ -72,7 +72,7 @@ Read `RELEASE.md` before any release work. In short:
 - The workflow creates a draft. `scripts/sign-release.ps1` signs every `.ps1` and `.exe` on a Windows machine with the code-signing certificate (CI never has the key), then the signed files replace the draft's and it is published. Attestations are not used, because signing replaces the bytes CI built.
 - Every Windows release keeps `make_latest: false`, because the macOS installer and `mo update` resolve stable versions through `releases/latest`.
 - `scripts/build-release.ps1` produces every asset and calls `scripts/write-checksums.ps1`; `SHA256SUMS.txt` must list the zip and both TUI executables, since `lib/core/tui_binaries.ps1` refuses a download it cannot match and never falls back to building after a mismatch.
-- Package-manager manifests are templates in `packaging/`, filled by `scripts/render-packaging.ps1` from the published `SHA256SUMS.txt`. `mo update` prints the winget, Scoop or Chocolatey upgrade command for those installs.
+- Package-manager manifests are templates in `packaging/`, filled by `scripts/render-packaging.ps1` from the published `SHA256SUMS.txt`. `mo update` prints the winget or Scoop upgrade command for those installs.
 - Releases, tags and package-manager submissions need the maintainer's explicit go-ahead.
 
 ## GitHub
