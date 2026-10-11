@@ -57,7 +57,7 @@ function Show-UninstallHelp {
     Write-Host ""
     Write-Host "$esc[33mFeatures:$esc[0m"
     Write-Host "  - Scans installed programs from registry and Windows Apps"
-    Write-Host "  - Shows program size and last used date"
+    Write-Host "  - Shows program size, largest first"
     Write-Host "  - Interactive selection with arrow keys"
     Write-Host "  - Cleans leftover files after uninstall"
     Write-Host ""

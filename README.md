@@ -28,9 +28,15 @@
 
 ## Quick Start
 
-Mole runs on Windows 10 and 11 with the built-in Windows PowerShell 5.1. Git is needed for the script install and `mo update`. The script installs into `%LOCALAPPDATA%\Programs\mole-cli` and adds `mo` and `mole` to your PATH.
+Mole runs on Windows 10 and 11 with the built-in Windows PowerShell 5.1. The script install needs Git, installs into `%LOCALAPPDATA%\Programs\mole-cli`, and adds `mo` and `mole` to your PATH.
 
-**Install via script**
+**Install via Scoop**
+
+```powershell
+scoop install mole
+```
+
+**Or via script**
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
@@ -142,7 +148,38 @@ The detailed list holds every path the preview found. Copy any of them into the 
 mo uninstall
 ```
 
-Lists installed programs from the registry and Windows Apps with their size and last use, then removes the ones you pick with their own uninstaller and cleans the leftover install folder. `mo uninstall --dry-run` shows which uninstaller each app would use and what would be removed, without running anything.
+Lists installed programs from the registry and Windows Apps, largest first, then removes the ones you pick with their own uninstaller and cleans the leftover install folder. `mo uninstall --dry-run` shows which uninstaller each app would use and what would be removed, without running anything.
+
+```text
+$ mo uninstall
+
+Select Applications to Uninstall
+
+Use: ↑↓ navigate | Space select | Enter confirm | Q quit | / search
+
+  [✓] VLC media player                              176.4MB
+  [✓] Notepad++ (64-bit x64)                         15.2MB
+  [ ] 7-Zip 24.08 (x64)                               5.6MB
+
+Selected: 2 apps (191.6MB)
+Page 1 of 1
+
+The following applications will be uninstalled:
+
+  • VLC media player (176.4MB)
+  • Notepad++ (64-bit x64) (15.2MB)
+
+Continue? (y/N): y
+
+Uninstalling Applications
+
+➤ Uninstalling: VLC media player ✓
+  Cleaning leftover files...
+➤ Uninstalling: Notepad++ (64-bit x64) ✓
+
+Uninstall Complete
+  Successfully uninstalled: 2
+```
 
 ### Optimize
 
