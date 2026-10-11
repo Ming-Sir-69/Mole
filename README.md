@@ -42,6 +42,8 @@ scoop install mole
 iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
 ```
 
+Mole is only distributed through this GitHub repository, Scoop, and [mole.fit](https://mole.fit/windows) for the Windows app. Sites offering a "Mole-based" app or asking you to paste an encoded command into a terminal are not affiliated with Mole.
+
 **Run**
 
 ```powershell
