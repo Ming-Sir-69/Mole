@@ -68,6 +68,54 @@ function Test-SafePath {
     return $true
 }
 
+# A junction or symbolic link points at someone else's files. Mole lists and
+# removes the link itself but never walks into it: in Windows PowerShell 5.1,
+# Remove-Item on a junction with children stops at an "Are you sure?" prompt,
+# and answering Yes deletes the files the link points to.
+function Test-IsReparsePoint {
+    param([string]$Path)
+
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    return ($null -ne $item) -and (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+}
+
+# Everything under $Path, depth first, without entering junctions or
+# directory symbolic links (the link itself is listed).
+function Get-TreeItemsNoFollow {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [switch]$SkipUnreadable
+    )
+
+    $errorAction = if ($SkipUnreadable) { "SilentlyContinue" } else { "Stop" }
+    $pending = New-Object System.Collections.Generic.Stack[string]
+    $pending.Push($Path)
+    while ($pending.Count -gt 0) {
+        $directory = $pending.Pop()
+        foreach ($item in @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction $errorAction)) {
+            $item
+            if ($item.PSIsContainer -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                $pending.Push($item.FullName)
+            }
+        }
+    }
+}
+
+# Deletes one entry; a linked directory loses only its link.
+function Remove-TreeEntry {
+    param([string]$Path)
+
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if ($item.PSIsContainer -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        [System.IO.Directory]::Delete($item.FullName, $false)
+    }
+    else {
+        Remove-Item -LiteralPath $item.FullName -Force -ErrorAction Stop
+    }
+}
+
 function Get-PathSize {
     <#
     .SYNOPSIS
@@ -84,7 +132,12 @@ function Get-PathSize {
     
     try {
         if (Test-Path $Path -PathType Container) {
-            $size = (Get-ChildItem -Path $Path -Recurse -Force -ErrorAction SilentlyContinue | 
+            # A linked directory's files are not Mole's to count.
+            if (Test-IsReparsePoint -Path $Path) {
+                return 0
+            }
+            $size = (Get-TreeItemsNoFollow -Path $Path -SkipUnreadable |
+                     Where-Object { -not $_.PSIsContainer } |
                      Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
             if ($null -eq $size) { return 0 }
             return [long]$size
@@ -123,8 +176,16 @@ function Get-SafeDirectoryTreeItems {
         [string]$Path
     )
 
+    # A linked directory is removed as a link; nothing under it is listed.
+    if (Test-IsReparsePoint -Path $Path) {
+        return @{
+            Success = $true
+            Items   = @()
+        }
+    }
+
     try {
-        $items = @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction Stop)
+        $items = @(Get-TreeItemsNoFollow -Path $Path)
     }
     catch {
         Write-Debug "Could not enumerate directory before removal: $Path - $_"
@@ -180,7 +241,7 @@ function Remove-SafeDirectoryTree {
 
     foreach ($item in $orderedItems) {
         try {
-            Remove-Item -LiteralPath $item.FullName -Force -ErrorAction Stop
+            Remove-TreeEntry -Path $item.FullName
             Write-Debug "Removed child item: $($item.FullName)"
         }
         catch {
@@ -190,7 +251,7 @@ function Remove-SafeDirectoryTree {
     }
 
     try {
-        Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+        Remove-TreeEntry -Path $Path
         Write-Debug "Removed directory root: $Path"
         return $true
     }

@@ -294,3 +294,49 @@ Describe "Cleanup accounting" {
         Should -Invoke Remove-SafeItems -Times 0 -ParameterFilter { @($Paths) -like "*.gitconfig.lock" }
     }
 }
+
+Describe "Junctions and symbolic links" {
+    BeforeEach {
+        Set-DryRunMode -Enabled $false
+        Reset-CleanupStats
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        $script:Target = Join-Path $script:Root "linked-source"
+        New-Item -ItemType Directory -Path $script:Target -Force | Out-Null
+        Set-Content -Path (Join-Path $script:Target "keep-me.txt") -Value ("x" * 4096)
+    }
+
+    AfterEach {
+        Set-DryRunMode -Enabled $true
+    }
+
+    It "Removes a folder holding a junction without touching the junction's target" {
+        $artifact = Join-Path $script:Root "project\node_modules"
+        New-Item -ItemType Directory -Path $artifact -Force | Out-Null
+        Set-Content -Path (Join-Path $artifact "index.js") -Value "x"
+        New-Item -ItemType Junction -Path (Join-Path $artifact "linked-pkg") -Target $script:Target | Out-Null
+
+        Remove-SafeItem -Path $artifact -Description "node_modules" -Recurse 6>$null | Should -BeTrue
+
+        Test-Path $artifact | Should -BeFalse
+        Test-Path (Join-Path $script:Target "keep-me.txt") | Should -BeTrue
+    }
+
+    It "Removes only the link when the path itself is a junction" {
+        $link = Join-Path $script:Root "node_modules"
+        New-Item -ItemType Junction -Path $link -Target $script:Target | Out-Null
+
+        Remove-SafeItem -Path $link -Description "node_modules" -Recurse 6>$null | Should -BeTrue
+
+        Test-Path $link | Should -BeFalse
+        Test-Path (Join-Path $script:Target "keep-me.txt") | Should -BeTrue
+    }
+
+    It "Does not count a junction's target in the size" {
+        $folder = Join-Path $script:Root "cache"
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        Set-Content -Path (Join-Path $folder "own.bin") -Value "abc"
+        New-Item -ItemType Junction -Path (Join-Path $folder "linked") -Target $script:Target | Out-Null
+
+        Get-PathSize -Path $folder | Should -BeLessThan 100
+    }
+}
