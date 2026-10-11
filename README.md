@@ -9,7 +9,7 @@
   <a href="https://t.me/+9f9gf4ZrFSQ2OWVl"><img src="https://img.shields.io/badge/chat-Telegram-blueviolet?style=flat-square&logo=Telegram" alt="Telegram"></a>
 </div>
 
-> 💡 This branch is the free open-source Windows CLI (`mo`). The macOS CLI lives on the [main branch](https://github.com/tw93/Mole).
+> 💡 This branch is the free open-source Windows CLI (`mo`). Prefer a native app? [Mole for Windows](https://mole.fit/windows) is a separate download with review-before-delete cleanup, app updates, startup management, disk drill-downs, and live status. The macOS CLI lives on the [main branch](https://github.com/tw93/Mole).
 
 ## Features
 
@@ -22,7 +22,7 @@
 
 ## Quick Start
 
-Mole runs on Windows 10 and 11 with the built-in Windows PowerShell 5.1. Git is needed for the script install and `mo update`.
+Mole runs on Windows 10 and 11 with the built-in Windows PowerShell 5.1. Git is needed for the script install and `mo update`. The script installs into `%LOCALAPPDATA%\Programs\mole-cli` and adds `mo` and `mole` to your PATH.
 
 **Install via script**
 
@@ -73,13 +73,13 @@ git clone --branch windows https://github.com/tw93/Mole.git $installDir
 powershell -ExecutionPolicy Bypass -File "$installDir\install.ps1" -InstallDir $installDir -AddToPath
 ```
 
-Add `-CreateShortcut` for a Start Menu entry. Each [release](https://github.com/tw93/Mole/releases) tagged `V<version>-windows` also ships a signed portable `mole-<version>-x64.zip`. To uninstall, run `mo remove`.
+Add `-CreateShortcut` for a Start Menu entry. Each [release](https://github.com/tw93/Mole/releases) tagged `V<version>-windows` also ships a signed portable `mole-<version>-x64.zip`; extract it anywhere and run `mo.exe`. To uninstall, run `mo remove`.
 
 </details>
 
 ## Safety
 
-Mole can delete files, so it validates paths and protects system and profile locations. `uninstall` and `purge` ask for confirmation before removing anything. When Mole cannot prove an item is safe to change, it skips it.
+Mole can delete files, so it validates paths and protects system and profile locations. `uninstall`, `purge`, and `remove` ask for confirmation before removing anything. When Mole cannot prove an item is safe to change, it skips it.
 
 - `clean`, `uninstall`, `purge`, and `remove` can delete files, so review them with `--dry-run` first and add `--debug` when needed
 - Deletions are permanent; Mole does not move files to the Recycle Bin
