@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 
 PackageIdentifier: tw93.Mole
 PackageVersion: {{VERSION}}
@@ -9,7 +9,7 @@ PublisherSupportUrl: https://github.com/tw93/Mole/issues
 Author: tw93
 PackageName: Mole
 PackageUrl: https://github.com/tw93/Mole/tree/windows
-License: GPL-3.0
+License: GPL-3.0-or-later
 LicenseUrl: https://github.com/tw93/Mole/blob/windows/LICENSE
 ShortDescription: Deep clean, uninstall apps, optimize, analyze disk, and monitor Windows from the terminal.
 Description: |-
@@ -28,4 +28,4 @@ Tags:
   - cli
 ReleaseNotesUrl: https://github.com/tw93/Mole/releases/tag/{{TAG}}
 ManifestType: defaultLocale
-ManifestVersion: 1.6.0
+ManifestVersion: 1.12.0

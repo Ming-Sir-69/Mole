@@ -2,9 +2,13 @@
     "version": "{{VERSION}}",
     "description": "Deep clean, uninstall apps, optimize, analyze disk, and monitor Windows from the terminal.",
     "homepage": "https://github.com/tw93/Mole/tree/windows",
-    "license": "GPL-3.0",
-    "url": "{{ZIP_URL}}",
-    "hash": "{{ZIP_SHA256}}",
+    "license": "GPL-3.0-or-later",
+    "architecture": {
+        "64bit": {
+            "url": "{{ZIP_URL}}",
+            "hash": "{{ZIP_SHA256}}"
+        }
+    },
     "bin": [
         "mo.exe",
         [
@@ -13,13 +17,17 @@
         ]
     ],
     "checkver": {
-        "url": "https://github.com/tw93/Mole/releases",
-        "regex": "/releases/tag/V([\\d.]+)-windows"
+        "url": "https://api.github.com/repos/tw93/Mole/releases?per_page=100",
+        "regex": "\"tag_name\":\\s*\"V([\\d.]+)-windows\""
     },
     "autoupdate": {
-        "url": "https://github.com/tw93/Mole/releases/download/V$version-windows/mole-$version-x64.zip",
-        "hash": {
-            "url": "$baseurl/SHA256SUMS.txt"
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/tw93/Mole/releases/download/V$version-windows/mole-$version-x64.zip",
+                "hash": {
+                    "url": "$baseurl/SHA256SUMS.txt"
+                }
+            }
         }
     }
 }
