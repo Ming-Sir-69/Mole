@@ -13,10 +13,12 @@ BeforeAll {
     }, $false)
     . ([scriptblock]::Create($main.Extent.Text))
 
+    $DryRun = $false
     $DebugMode = $false
     $ShowHelp = $false
     $Rescan = $false
     $script:Icons = @{ List = "-" }
+    $script:MoleDryRunMode = $false
     $script:TestApps = @(
         [PSCustomObject]@{ Name = "First app"; SizeHuman = "1MB" }
         [PSCustomObject]@{ Name = "Second app"; SizeHuman = "2MB" }

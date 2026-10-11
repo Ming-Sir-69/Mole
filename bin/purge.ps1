@@ -4,6 +4,9 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
+    [Alias('dry-run')]
+    [switch]$DryRun,
+
     [Alias('d')]
     [switch]$DebugMode,
     
@@ -84,6 +87,7 @@ function Show-PurgeHelp {
     Write-Host "$esc[33mUsage:$esc[0m mo purge [options]"
     Write-Host ""
     Write-Host "$esc[33mOptions:$esc[0m"
+    Write-Host "  --dry-run    Show what would be removed, change nothing"
     Write-Host "  --paths      Edit custom scan directories"
     Write-Host "  --debug      Enable debug logging"
     Write-Host "  --help       Show this help message"
@@ -478,12 +482,11 @@ function Remove-ProjectArtifacts {
 
         foreach ($artifact in $project.Artifacts) {
             if (Test-Path $artifact.Path) {
-                # Use safe removal with protection checks (returns boolean)
+                # Remove-SafeItem prints the result row and adds the size to
+                # $script:TotalSizeCleaned; counting it here as well doubled it.
                 $success = Remove-SafeItem -Path $artifact.Path -Description $artifact.Name -Recurse
 
                 if ($success) {
-                    Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m $($artifact.Name) ($($artifact.SizeHuman))"
-                    $script:TotalSizeCleaned += $artifact.SizeKB
                     $script:ItemsCleaned++
                 }
                 else {
@@ -502,14 +505,26 @@ function Show-PurgeSummary {
     $esc = [char]27
 
     Write-Host ""
-    Write-Host "$esc[1;35mPurge Complete$esc[0m"
+    if ($script:MoleDryRunMode) {
+        Write-Host "$esc[1;35mDry run complete - no changes made$esc[0m"
+    }
+    else {
+        Write-Host "$esc[1;35mPurge Complete$esc[0m"
+    }
     Write-Host ""
 
     if ($script:TotalSizeCleaned -gt 0) {
         $sizeGB = [Math]::Round($script:TotalSizeCleaned / 1024 / 1024, 2)
-        Write-Host "  Space freed: $esc[32m${sizeGB}GB$esc[0m"
-        Write-Host "  Items cleaned: $($script:ItemsCleaned)"
-        Write-Host "  Free space now: $(Get-FreeSpace)"
+        if ($script:MoleDryRunMode) {
+            Write-Host "  Potential space: $esc[32m${sizeGB}GB$esc[0m"
+            Write-Host "  Items found: $($script:ItemsCleaned)"
+            Write-Host "  Run without --dry-run to remove them"
+        }
+        else {
+            Write-Host "  Space freed: $esc[32m${sizeGB}GB$esc[0m"
+            Write-Host "  Items cleaned: $($script:ItemsCleaned)"
+            Write-Host "  Free space now: $(Get-FreeSpace)"
+        }
     }
     else {
         Write-Host "  No artifacts to clean."
@@ -540,6 +555,11 @@ function Main {
     if ($Paths) {
         Edit-SearchPaths
         return
+    }
+
+    if ($DryRun) {
+        $env:MOLE_DRY_RUN = "1"
+        Set-DryRunMode -Enabled $true
     }
 
     # Clear screen
@@ -605,6 +625,12 @@ function Main {
     }
 
     Write-Host ""
+    # A dry run only reports, so it needs no confirmation.
+    if ($script:MoleDryRunMode) {
+        Remove-ProjectArtifacts -Projects $selected
+        Show-PurgeSummary
+        return
+    }
     $confirm = Read-Host "Continue? (y/N)"
 
     if ($confirm -eq 'y' -or $confirm -eq 'Y') {

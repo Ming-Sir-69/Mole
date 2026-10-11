@@ -4,6 +4,9 @@
 #Requires -Version 5.1
 [CmdletBinding()]
 param(
+    [Alias('dry-run')]
+    [switch]$DryRun,
+
     [Alias('d')]
     [switch]$DebugMode,
     
@@ -47,6 +50,7 @@ function Show-UninstallHelp {
     Write-Host "$esc[33mUsage:$esc[0m mo uninstall [options]"
     Write-Host ""
     Write-Host "$esc[33mOptions:$esc[0m"
+    Write-Host "  --dry-run    Show what would be uninstalled, change nothing"
     Write-Host "  --rescan     Force rescan of installed applications"
     Write-Host "  --debug      Enable debug logging"
     Write-Host "  --help       Show this help message"
@@ -452,6 +456,24 @@ function Show-AppSelectionMenu {
 # Uninstallation
 # ============================================================================
 
+# How an app would be removed, for the dry-run preview.
+function Get-UninstallMethodDescription {
+    param($App)
+
+    if ($App.Source -eq "WindowsStore") {
+        return "Remove-AppxPackage $($App.PackageFullName)"
+    }
+    $uninstallString = $App.UninstallString
+    if ($uninstallString -like "MsiExec.exe*") {
+        $productCode = [regex]::Match($uninstallString, '\{[0-9A-F-]+\}').Value
+        return "msiexec /x $productCode"
+    }
+    if ($uninstallString) {
+        return "its uninstaller: $uninstallString"
+    }
+    return "no uninstall command registered"
+}
+
 function Uninstall-SelectedApps {
     <#
     .SYNOPSIS
@@ -460,6 +482,26 @@ function Uninstall-SelectedApps {
     param([array]$Apps)
 
     $esc = [char]27
+
+    # A dry run runs no uninstaller and removes nothing; leftover folders go
+    # through Remove-SafeItem, which only reports them in dry-run mode.
+    if ($script:MoleDryRunMode) {
+        Write-Host ""
+        Write-Host "$esc[1;35mUninstall preview$esc[0m - no changes made"
+        Write-Host ""
+        foreach ($app in $Apps) {
+            Write-Host "$esc[34m$($script:Icons.Arrow)$esc[0m $($app.Name)"
+            Write-Host "  $esc[90mWould uninstall with $(Get-UninstallMethodDescription -App $app)$esc[0m"
+            if ($app.InstallLocation -and (Test-Path $app.InstallLocation)) {
+                $null = Remove-SafeItem -Path $app.InstallLocation -Description "Leftover files" -Recurse
+            }
+        }
+        Write-Host ""
+        Write-Host "  Would uninstall: $esc[32m$(@($Apps).Count)$esc[0m"
+        Write-Host "  Run without --dry-run to uninstall"
+        Write-Host ""
+        return
+    }
 
     Write-Host ""
     Write-Host "$esc[1;35mUninstalling Applications$esc[0m"
@@ -539,7 +581,7 @@ function Uninstall-SelectedApps {
             # Clean leftover files
             if ($app.InstallLocation -and (Test-Path $app.InstallLocation)) {
                 Write-Host "  $esc[90mCleaning leftover files...$esc[0m"
-                Remove-SafeItem -Path $app.InstallLocation -Description "Leftover files" -Recurse
+                $null = Remove-SafeItem -Path $app.InstallLocation -Description "Leftover files" -Recurse
             }
         }
         catch {
@@ -581,6 +623,11 @@ function Main {
         return
     }
 
+    if ($DryRun) {
+        $env:MOLE_DRY_RUN = "1"
+        Set-DryRunMode -Enabled $true
+    }
+
     # Clear screen
     Clear-Host
 
@@ -606,7 +653,12 @@ function Main {
     $esc = [char]27
     Clear-Host
     Write-Host ""
-    Write-Host "$esc[33mThe following applications will be uninstalled:$esc[0m"
+    if ($script:MoleDryRunMode) {
+        Write-Host "$esc[33mDry run: the following applications would be uninstalled:$esc[0m"
+    }
+    else {
+        Write-Host "$esc[33mThe following applications will be uninstalled:$esc[0m"
+    }
     Write-Host ""
 
     foreach ($app in $selected) {
