@@ -82,7 +82,7 @@ Add `-CreateShortcut` for a Start Menu entry. To uninstall, run `mo remove`.
 Mole can delete files, so it validates paths and protects system and profile locations. `uninstall`, `purge`, and `remove` ask for confirmation before removing anything. When Mole cannot prove an item is safe to change, it skips it.
 
 - `clean`, `uninstall`, `purge`, and `remove` can delete files, so review them with `--dry-run` first and add `--debug` when needed
-- Deletions are permanent; Mole does not move files to the Recycle Bin
+- `clean`, `uninstall`, and `purge` delete permanently; files deleted in `mo analyze` go to the Recycle Bin
 - Run Mole as your normal user; system-level steps are skipped unless PowerShell runs as administrator
 - Protect paths with `mo clean --whitelist`
 - `C:\Windows`, `C:\Program Files`, Windows Defender folders, and your profile root are never touched
@@ -177,7 +177,7 @@ mo analyze
 mo analyze D:\
 ```
 
-An interactive disk explorer: arrow keys move through folders, a large-file view lists files over 100 MB, and deleting from it asks for confirmation first.
+An interactive disk explorer with the same layout as the macOS version: arrow keys move through folders, `Backspace` goes back, `T` lists the largest files, and `Del` moves the selected items to the Recycle Bin after a confirmation.
 
 ### Status
 

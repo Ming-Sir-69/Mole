@@ -57,8 +57,8 @@ lib/AGENTS.md
 tests/AGENTS.md
 
 # Build artifacts
-analyze
-status
+/analyze
+/status
 bin/analyze-*
 bin/status-*
 bin/*.exe
