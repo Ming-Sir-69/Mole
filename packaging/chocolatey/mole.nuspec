@@ -15,6 +15,8 @@ Run `mo` for the interactive menu, or `mo clean --dry-run` to preview a cleanup.
     <packageSourceUrl>https://github.com/tw93/Mole/tree/windows/packaging/chocolatey</packageSourceUrl>
     <docsUrl>https://github.com/tw93/Mole/blob/windows/README.md</docsUrl>
     <bugTrackerUrl>https://github.com/tw93/Mole/issues</bugTrackerUrl>
+    <iconUrl>https://cdn.tw93.fun/pic/cole.png</iconUrl>
+    <copyright>Copyright (c) tw93</copyright>
     <licenseUrl>https://github.com/tw93/Mole/blob/windows/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <releaseNotes>https://github.com/tw93/Mole/releases/tag/{{TAG}}</releaseNotes>
