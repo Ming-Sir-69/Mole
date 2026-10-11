@@ -80,3 +80,25 @@ Describe "mo --help and --version" {
         $output | Should -Match "Install: (Source|Portable|winget|Scoop|Chocolatey)"
     }
 }
+
+Describe "mo remove" {
+    BeforeAll {
+        $script:Fake = Join-Path $TestDrive "fake-install"
+        New-Item -ItemType Directory -Path (Join-Path $script:Fake "bin") -Force | Out-Null
+        Copy-Item (Join-Path $script:WindowsDir "bin\remove.ps1") (Join-Path $script:Fake "bin\remove.ps1")
+        # Stands in for the real installer: records that removal was requested.
+        Set-Content -Path (Join-Path $script:Fake "install.ps1") -Value 'param([string]$InstallDir, [switch]$Uninstall) Set-Content -Path (Join-Path $InstallDir "uninstall-called.txt") -Value $InstallDir'
+    }
+
+    It "Removes nothing when the answer is not y" {
+        $output = ("n" | & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:Fake "bin\remove.ps1") 2>&1 | Out-String)
+        $output | Should -Match "Cancelled"
+        Test-Path (Join-Path $script:Fake "uninstall-called.txt") | Should -BeFalse
+    }
+
+    It "Asks with the install path and removes on y" {
+        $output = ("y" | & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:Fake "bin\remove.ps1") 2>&1 | Out-String)
+        $output | Should -Not -Match "cannot be retrieved"
+        Test-Path (Join-Path $script:Fake "uninstall-called.txt") | Should -BeTrue
+    }
+}
