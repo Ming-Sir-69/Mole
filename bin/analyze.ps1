@@ -28,19 +28,21 @@ function Show-AnalyzeHelp {
     Write-Host "$esc[33mUsage:$esc[0m mo analyze [path]"
     Write-Host ""
     Write-Host "$esc[33mOptions:$esc[0m"
-    Write-Host "  [path]     Path to analyze (default: user profile)"
+    Write-Host "  [path]     Path to analyze (default: overview of folders and drives)"
     Write-Host "  --help     Show this help message"
     Write-Host ""
     Write-Host "$esc[33mKeybindings:$esc[0m"
-    Write-Host "  Up/Down      Navigate entries"
-    Write-Host "  Enter        Enter directory"
-    Write-Host "  Backspace    Go back"
-    Write-Host "  Space        Multi-select"
-    Write-Host "  d            Delete selected"
-    Write-Host "  f            Toggle large files view"
-    Write-Host "  o            Open in Explorer"
-    Write-Host "  r            Refresh"
-    Write-Host "  q            Quit"
+    Write-Host "  Up/Down          Navigate entries"
+    Write-Host "  Enter/Right      Open folder"
+    Write-Host "  Left/Backspace   Go back"
+    Write-Host "  Space            Select"
+    Write-Host "  Delete           Move selected to the Recycle Bin"
+    Write-Host "  T                Top large files"
+    Write-Host "  /                Filter"
+    Write-Host "  O / F / P        Open, show in Explorer, preview"
+    Write-Host "  R                Refresh"
+    Write-Host "  Esc              Back"
+    Write-Host "  Q                Quit"
     Write-Host ""
 }
 
@@ -56,10 +58,13 @@ if (-not $binPath) {
     exit 1
 }
 
-# Set path environment variable if provided
-if ($Path) {
-    $env:MO_ANALYZE_PATH = $Path
+# Pass the path for this run only: without one the analyzer opens the overview,
+# so a path left in the session by an earlier run must not leak into the next.
+$previousPath = $env:MO_ANALYZE_PATH
+$env:MO_ANALYZE_PATH = $Path
+try {
+    & $binPath
 }
-
-# Run the binary
-& $binPath
+finally {
+    $env:MO_ANALYZE_PATH = $previousPath
+}
