@@ -38,12 +38,9 @@ $script:MOLE_VER = Get-MoleVersionString -RootDir $script:MOLE_ROOT
 # Version Info
 # ============================================================================
 
-$script:MOLE_BUILD = "2026-01-07"
-
 function Show-Version {
     $info = Get-MoleVersion
-    Write-Host "Mole v$($info.Version)"
-    Write-Host "Built: $($info.BuildDate)"
+    Write-Host "Mole version $($info.Version)"
     Write-Host "PowerShell: $($info.PowerShell)"
     Write-Host "Windows: $($info.Windows)"
 }

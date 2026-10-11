@@ -40,7 +40,6 @@ $script:MOLE_ROOT_DIR = Split-Path -Parent $script:MOLE_LIB_DIR
 # ============================================================================
 
 $script:MOLE_VERSION = Get-MoleVersionString -RootDir $script:MOLE_ROOT_DIR
-$script:MOLE_BUILD_DATE = "2026-01-07"
 
 function Get-MoleVersion {
     <#
@@ -49,7 +48,6 @@ function Get-MoleVersion {
     #>
     return @{
         Version   = $script:MOLE_VERSION
-        BuildDate = $script:MOLE_BUILD_DATE
         PowerShell = $PSVersionTable.PSVersion.ToString()
         Windows    = (Get-WindowsVersion).Version
     }
