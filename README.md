@@ -9,6 +9,10 @@
   <a href="https://t.me/+9f9gf4ZrFSQ2OWVl"><img src="https://img.shields.io/badge/chat-Telegram-blueviolet?style=flat-square&logo=Telegram" alt="Telegram"></a>
 </div>
 
+<p align="center">
+  <img src="./docs/img/mole-windows.png" alt="Mole for Windows menu" width="1000" />
+</p>
+
 > 💡 This branch is the free open-source Windows CLI (`mo`). Prefer a native app? [Mole for Windows](https://mole.fit/windows) is a separate download with review-before-delete cleanup, app updates, startup management, disk drill-downs, and live status. The macOS CLI lives on the [main branch](https://github.com/tw93/Mole).
 
 ## Features
@@ -177,6 +181,8 @@ mo analyze
 mo analyze D:\
 ```
 
+<img src="./docs/img/analyze-windows.png" alt="mo analyze overview" width="1000" />
+
 An interactive disk explorer with the same layout as the macOS version: arrow keys move through folders, `Backspace` goes back, `T` lists the largest files, and `Del` moves the selected items to the Recycle Bin after a confirmation.
 
 ### Status
@@ -185,7 +191,9 @@ An interactive disk explorer with the same layout as the macOS version: arrow ke
 mo status
 ```
 
-A live dashboard with a health score, CPU, memory, disk, network, and the busiest processes.
+<img src="./docs/img/status-windows.png" alt="mo status dashboard" width="1000" />
+
+A live dashboard with a health score, CPU, memory, disk, power, network, and the busiest processes.
 
 ### Purge
 
