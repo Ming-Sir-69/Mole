@@ -73,7 +73,7 @@ git clone --branch windows https://github.com/tw93/Mole.git $installDir
 powershell -ExecutionPolicy Bypass -File "$installDir\install.ps1" -InstallDir $installDir -AddToPath
 ```
 
-Add `-CreateShortcut` for a Start Menu entry. Each [release](https://github.com/tw93/Mole/releases) tagged `V<version>-windows` also ships a signed portable `mole-<version>-x64.zip`; extract it anywhere and run `mo.exe`. To uninstall, run `mo remove`.
+Add `-CreateShortcut` for a Start Menu entry. To uninstall, run `mo remove`.
 
 </details>
 

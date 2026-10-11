@@ -139,18 +139,14 @@ jobs:
           body: |
             ## Mole for Windows (CLI) ${{ steps.version.outputs.VERSION }}
 
-            **Download:** `mole-${{ steps.version.outputs.VERSION }}-x64.zip`
-            **TUI assets:** `analyze-windows-x64.exe` and `status-windows-x64.exe`
+            Install from PowerShell:
 
-            **Install:**
             ```powershell
-            Expand-Archive mole-${{ steps.version.outputs.VERSION }}-x64.zip -DestinationPath C:\mole
-            cd C:\mole
-            .\install.ps1
+            iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
             ```
 
-            This release does not change the macOS release channel.
+            Already installed? Run `mo update`.
 
-            **Verify:** every script and executable is signed by Faberon Technology Limited; compare downloads with `SHA256SUMS.txt`.
+            The files below are what package managers and `mo` download. Every script and executable is code-signed, and `SHA256SUMS.txt` lists their checksums.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
