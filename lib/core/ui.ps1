@@ -379,15 +379,17 @@ function Show-SelectionList {
 function Show-Banner {
     <#
     .SYNOPSIS
-        Display the Mole ASCII banner
+        Display the Mole logo, website and tagline, as the macOS CLI does
     #>
-    $purple = $script:Colors.Purple
-    $cyan = $script:Colors.Cyan
+    $green = $script:Colors.Green
+    $blue = $script:Colors.Blue
     $nc = $script:Colors.NC
-    
-    Write-Host ""
-    Write-Host "  ${purple}MOLE${nc}"
-    Write-Host "  ${cyan}Windows System Maintenance${nc}"
+
+    Write-Host "$green __  __       _      $nc"
+    Write-Host "$green|  \/  | ___ | | ___ $nc"
+    Write-Host "$green| |\/| |/ _ \| |/ _ \$nc"
+    Write-Host "$green| |  | | (_) | |  __/$nc  ${blue}https://mole.fit/windows$nc"
+    Write-Host "$green|_|  |_|\___/|_|\___|$nc  ${green}Deep clean and optimize your PC.$nc"
     Write-Host ""
 }
 

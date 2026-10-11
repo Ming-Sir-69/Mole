@@ -60,3 +60,23 @@ Describe "mole.ps1 command router" {
         Resolve-CommandParameterName -Parameters $declared -Flag "help" | Should -Be "ShowHelp"
     }
 }
+
+Describe "mo --help and --version" {
+    BeforeAll {
+        $script:Mole = Join-Path $script:WindowsDir "mole.ps1"
+    }
+
+    It "Shows the logo with the Windows website and the macOS command layout" {
+        $output = (& powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$($script:Mole)' '--help'" 2>&1 | Out-String)
+        $output | Should -Match "https://mole\.fit/windows"
+        $output | Should -Match "COMMANDS"
+        $output | Should -Match "mo uninstall --dry-run"
+    }
+
+    It "Reports the version, platform and install method" {
+        $output = (& powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$($script:Mole)' '--version'" 2>&1 | Out-String)
+        $output | Should -Match "Mole version \d+\.\d+\.\d+"
+        $output | Should -Match "Architecture: "
+        $output | Should -Match "Install: (Source|Portable|winget|Scoop|Chocolatey)"
+    }
+}

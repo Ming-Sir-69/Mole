@@ -176,8 +176,8 @@ function Test-ProtectedInstallRoot {
 function Show-Banner {
     $c = $script:Colors
     Write-Host ""
-    Write-Host "  $($c.Cyan)MOLE$($c.NC)"
-    Write-Host "  $($c.Gray)Windows System Maintenance$($c.NC)"
+    Write-Host "  $($c.Cyan)Mole for Windows$($c.NC)"
+    Write-Host "  $($c.Gray)Deep clean and optimize your PC. https://mole.fit/windows$($c.NC)"
     Write-Host ""
 }
 

@@ -40,9 +40,25 @@ $script:MOLE_VER = Get-MoleVersionString -RootDir $script:MOLE_ROOT
 
 function Show-Version {
     $info = Get-MoleVersion
+    $windows = Get-WindowsVersion
     Write-Host "Mole version $($info.Version)"
+    Write-Host "Windows: $($windows.Name) $($windows.Version)"
+    Write-Host "Architecture: $env:PROCESSOR_ARCHITECTURE"
     Write-Host "PowerShell: $($info.PowerShell)"
-    Write-Host "Windows: $($info.Windows)"
+    Write-Host "Disk Free: $(Get-FreeSpace)"
+    Write-Host "Install: $(Get-MoleInstallMethod -RootDir $script:MOLE_ROOT)"
+}
+
+# How this copy was installed, by the folder each channel installs into.
+function Get-MoleInstallMethod {
+    param([string]$RootDir)
+
+    $path = $RootDir.TrimEnd('\') + '\'
+    if ($path -like "*\Microsoft\WinGet\Packages\tw93.Mole_*") { return "winget" }
+    if ($path -like "*\scoop\apps\mole\*") { return "Scoop" }
+    if ($path -like "*\chocolatey\lib\mole\*") { return "Chocolatey" }
+    if (Test-Path -LiteralPath (Join-Path $RootDir ".git")) { return "Source" }
+    return "Portable"
 }
 
 # ============================================================================
@@ -50,52 +66,39 @@ function Show-Version {
 # ============================================================================
 
 function Show-MainHelp {
-    $cyan = $script:Colors.Cyan
-    $gray = $script:Colors.Gray
+    $blue = $script:Colors.Blue
     $green = $script:Colors.Green
     $nc = $script:Colors.NC
 
-    Show-Banner
+    function Write-HelpRow([string]$Usage, [string]$Description) {
+        Write-Host ("  {0}{1,-28}{2} {3}" -f $green, $Usage, $nc, $Description)
+    }
 
-    Write-Host "  ${cyan}Windows System Maintenance Toolkit${nc}"
-    Write-Host "  ${gray}Clean, optimize, and maintain your Windows system${nc}"
+    Show-Banner
+    Write-Host "${blue}COMMANDS${nc}"
+    Write-HelpRow "mo" "Main menu"
+    Write-HelpRow "mo clean" "Free up disk space"
+    Write-HelpRow "mo uninstall" "Remove apps completely"
+    Write-HelpRow "mo optimize" "Refresh caches and services"
+    Write-HelpRow "mo analyze" "Explore disk usage"
+    Write-HelpRow "mo status" "Monitor system health"
+    Write-HelpRow "mo purge" "Remove old project artifacts"
+    Write-HelpRow "mo update" "Update to latest version"
+    Write-HelpRow "mo remove" "Remove Mole from system"
+    Write-HelpRow "mo --help" "Show help"
+    Write-HelpRow "mo --version" "Show version"
     Write-Host ""
-    Write-Host "  ${green}COMMANDS:${nc}"
+    Write-HelpRow "mo clean --dry-run" "Preview cleanup"
+    Write-HelpRow "mo clean --whitelist" "Manage protected paths"
+    Write-HelpRow "mo clean --system" "Include system cleanup (run as administrator)"
+    Write-HelpRow "mo optimize --dry-run" "Preview optimization"
+    Write-HelpRow "mo uninstall --dry-run" "Preview app uninstall"
+    Write-HelpRow "mo purge --dry-run" "Preview project purge"
+    Write-HelpRow "mo purge --paths" "Configure scan directories"
+    Write-HelpRow "mo analyze D:\" "Analyze another drive"
     Write-Host ""
-    Write-Host "    ${cyan}clean${nc}       Deep system cleanup"
-    Write-Host "    ${cyan}uninstall${nc}   Smart application uninstaller"
-    Write-Host "    ${cyan}optimize${nc}    System optimization and repairs"
-    Write-Host "    ${cyan}analyze${nc}     Disk space analyzer"
-    Write-Host "    ${cyan}status${nc}      System monitor"
-    Write-Host "    ${cyan}update${nc}      Update the source channel"
-    Write-Host "    ${cyan}remove${nc}      Remove Mole from this system"
-    Write-Host "    ${cyan}purge${nc}       Clean project artifacts"
-    Write-Host ""
-    Write-Host "  ${green}OPTIONS:${nc}"
-    Write-Host ""
-    Write-Host "    ${cyan}--version${nc}   Show version information"
-    Write-Host "    ${cyan}--help${nc}      Show this help message"
-    Write-Host ""
-    Write-Host "  ${green}EXAMPLES:${nc}"
-    Write-Host ""
-    Write-Host "    ${gray}mo${nc}                      ${gray}# Interactive menu${nc}"
-    Write-Host "    ${gray}mo clean${nc}                ${gray}# Deep cleanup${nc}"
-    Write-Host "    ${gray}mo clean --dry-run${nc}      ${gray}# Preview cleanup${nc}"
-    Write-Host "    ${gray}mo uninstall${nc}            ${gray}# Uninstall apps${nc}"
-    Write-Host "    ${gray}mo analyze${nc}              ${gray}# Disk analyzer${nc}"
-    Write-Host "    ${gray}mo status${nc}               ${gray}# System monitor${nc}"
-    Write-Host "    ${gray}mo update${nc}               ${gray}# Pull latest windows source${nc}"
-    Write-Host "    ${gray}mo remove${nc}               ${gray}# Remove Mole from this system${nc}"
-    Write-Host "    ${gray}mo optimize${nc}             ${gray}# Optimize system (includes repairs)${nc}"
-    Write-Host "    ${gray}mo optimize --dry-run${nc}   ${gray}# Preview optimizations${nc}"
-    Write-Host "    ${gray}mo purge${nc}                ${gray}# Clean dev artifacts${nc}"
-    Write-Host ""
-    Write-Host "  ${green}ENVIRONMENT:${nc}"
-    Write-Host ""
-    Write-Host "    ${cyan}MOLE_DRY_RUN=1${nc}    Preview without changes"
-    Write-Host "    ${cyan}MOLE_DEBUG=1${nc}      Enable debug output"
-    Write-Host ""
-    Write-Host "  ${gray}Run '${nc}mo <command> --help${gray}' for command-specific help${nc}"
+    Write-Host "${blue}OPTIONS${nc}"
+    Write-HelpRow "--debug" "Show detailed operation logs"
     Write-Host ""
 }
 
@@ -103,65 +106,64 @@ function Show-MainHelp {
 # Interactive Menu
 # ============================================================================
 
+# The macOS CLI's main menu: five numbered commands, arrow keys or 1-5,
+# M for the full help, V for the version, Q to quit. Returns a command name,
+# "help", "version" or $null.
 function Show-MainMenu {
-    $options = @(
-        @{
-            Name = "Clean"
-            Description = "Deep system cleanup"
-            Command = "clean"
-            Icon = $script:Icons.Trash
-        }
-        @{
-            Name = "Optimize"
-            Description = "Optimization & repairs"
-            Command = "optimize"
-            Icon = $script:Icons.Arrow
-        }
-        @{
-            Name = "Uninstall"
-            Description = "Remove applications"
-            Command = "uninstall"
-            Icon = $script:Icons.Folder
-        }
-        @{
-            Name = "Analyze"
-            Description = "Disk space analyzer"
-            Command = "analyze"
-            Icon = $script:Icons.File
-        }
-        @{
-            Name = "Status"
-            Description = "System monitor"
-            Command = "status"
-            Icon = $script:Icons.Solid
-        }
-        @{
-            Name = "Update"
-            Description = "Pull latest source"
-            Command = "update"
-            Icon = $script:Icons.Arrow
-        }
-        @{
-            Name = "Remove"
-            Description = "Uninstall Mole"
-            Command = "remove"
-            Icon = $script:Icons.Trash
-        }
-        @{
-            Name = "Purge"
-            Description = "Clean dev artifacts"
-            Command = "purge"
-            Icon = $script:Icons.List
-        }
+    $items = @(
+        @{ Command = "clean"; Label = "Clean        Free up disk space" },
+        @{ Command = "uninstall"; Label = "Uninstall    Remove apps completely" },
+        @{ Command = "optimize"; Label = "Optimize     Refresh caches and services" },
+        @{ Command = "analyze"; Label = "Analyze      Explore disk usage" },
+        @{ Command = "status"; Label = "Status       Monitor system health" }
     )
+    $cyan = $script:Colors.Cyan
+    $gray = $script:Colors.Gray
+    $nc = $script:Colors.NC
+    $esc = [char]27
+    $controls = "${gray}$([char]0x2191)$([char]0x2193)  |  Enter  |  M More  |  V Version  |  Q Quit${nc}"
+    $selected = 0
 
-    $selected = Show-Menu -Title "What would you like to do?" -Options $options -AllowBack
+    Write-Host -NoNewline "$esc[?25l"
+    try {
+        while ($true) {
+            Clear-Host
+            Write-Host ""
+            Show-Banner
+            for ($i = 0; $i -lt $items.Count; $i++) {
+                if ($i -eq $selected) {
+                    Write-Host "${cyan}$($script:Icons.Arrow) $($i + 1). $($items[$i].Label)${nc}"
+                }
+                else {
+                    Write-Host "  $($i + 1). $($items[$i].Label)"
+                }
+            }
+            Write-Host ""
+            Write-Host $controls
 
-    if ($null -eq $selected) {
-        return $null
+            $key = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            switch ($key.VirtualKeyCode) {
+                38 { if ($selected -gt 0) { $selected-- } }
+                40 { if ($selected -lt $items.Count - 1) { $selected++ } }
+                13 { return $items[$selected].Command }
+                27 { return $null }
+            }
+            $char = [string]$key.Character
+            if ($char -match '^[1-5]$') {
+                return $items[[int]$char - 1].Command
+            }
+            switch ($char.ToLowerInvariant()) {
+                'k' { if ($selected -gt 0) { $selected-- } }
+                'j' { if ($selected -lt $items.Count - 1) { $selected++ } }
+                'm' { return "help" }
+                'v' { return "version" }
+                'q' { return $null }
+            }
+        }
     }
-
-    return $selected.Command
+    finally {
+        Write-Host -NoNewline "$esc[?25h"
+    }
 }
 
 # ============================================================================
@@ -272,27 +274,6 @@ function Invoke-MoleCommand {
 }
 
 # ============================================================================
-# System Info Display
-# ============================================================================
-
-function Show-SystemInfo {
-    $cyan = $script:Colors.Cyan
-    $gray = $script:Colors.Gray
-    $green = $script:Colors.Green
-    $nc = $script:Colors.NC
-
-    $winInfo = Get-WindowsVersion
-    $freeSpace = Get-FreeSpace
-    $isAdmin = if (Test-IsAdmin) { "${green}Yes${nc}" } else { "${gray}No${nc}" }
-
-    Write-Host ""
-    Write-Host "  ${gray}System:${nc} $($winInfo.Name)"
-    Write-Host "  ${gray}Free Space:${nc} $freeSpace on $($env:SystemDrive)"
-    Write-Host "  ${gray}Admin:${nc} $isAdmin"
-    Write-Host ""
-}
-
-# ============================================================================
 # Main
 # ============================================================================
 
@@ -345,31 +326,20 @@ function Main {
         return
     }
 
-    # Interactive mode
+    # Interactive mode, as on macOS: pick once, run it, return to the shell.
+    $choice = Show-MainMenu
     Clear-Host
-    Show-Banner
-    Show-SystemInfo
-
-    while ($true) {
-        $selectedCommand = Show-MainMenu
-
-        if ($null -eq $selectedCommand) {
-            Clear-Host
-            Write-Host ""
-            Write-Host "  Goodbye!"
-            Write-Host ""
-            break
-        }
-
-        Clear-Host
-        Invoke-MoleCommand -CommandName $selectedCommand -Arguments @()
-
-        Write-Host ""
-        Write-Host "  Press any key to continue..."
-        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        Clear-Host
-        Show-Banner
-        Show-SystemInfo
+    if ($null -eq $choice) {
+        return
+    }
+    if ($choice -eq "help") {
+        Show-MainHelp
+    }
+    elseif ($choice -eq "version") {
+        Show-Version
+    }
+    else {
+        Invoke-MoleCommand -CommandName $choice -Arguments @()
     }
 }
 
