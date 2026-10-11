@@ -250,8 +250,12 @@ function Remove-SafeItem {
     
     # Handle dry run
     if ($script:MoleDryRunMode) {
+        $script:TotalSizeCleaned += $sizeKB
+        $script:FilesCleaned++
+        $script:TotalItems++
         $name = if ($Description) { $Description } else { Split-Path -Leaf $Path }
         Write-DryRun "$name $($script:Colors.Yellow)($sizeHuman dry)$($script:Colors.NC)"
+        Add-DryRunListEntries -Description $name -Paths @($Path)
         Set-SectionActivity
         return $true
     }
@@ -300,6 +304,7 @@ function Remove-SafeItems {
     $totalSize = 0
     $removedCount = 0
     $failedCount = 0
+    $dryRunPaths = New-Object System.Collections.Generic.List[string]
     
     foreach ($path in $Paths) {
         if (-not (Test-SafePath -Path $path)) {
@@ -325,6 +330,7 @@ function Remove-SafeItems {
         if ($script:MoleDryRunMode) {
             $totalSize += $size
             $removedCount++
+            $dryRunPaths.Add($path)
             continue
         }
         
@@ -351,23 +357,37 @@ function Remove-SafeItems {
         $sizeKB = [Math]::Ceiling($totalSize / 1024)
         $sizeHuman = Format-ByteSize -Bytes $totalSize
         
+        # A dry run counts what it would remove, so its summary can report it.
+        $script:TotalSizeCleaned += $sizeKB
+        $script:FilesCleaned += $removedCount
+        $script:TotalItems++
         if ($script:MoleDryRunMode) {
             Write-DryRun "$Description $($script:Colors.Yellow)($removedCount items, $sizeHuman dry)$($script:Colors.NC)"
+            Add-DryRunListEntries -Description $Description -Paths $dryRunPaths.ToArray()
         }
         else {
-            $script:TotalSizeCleaned += $sizeKB
-            $script:FilesCleaned += $removedCount
-            $script:TotalItems++
             Write-Success "$Description $($script:Colors.Green)($removedCount items, $sizeHuman)$($script:Colors.NC)"
         }
         Set-SectionActivity
     }
-    
-    return @{
-        Removed = $removedCount
-        Failed  = $failedCount
-        Size    = $totalSize
+}
+
+# Appends a dry run's paths to the preview list clean.ps1 announces. Commands
+# that set no list (purge, uninstall) write nothing.
+function Add-DryRunListEntries {
+    param(
+        [string]$Description,
+        [string[]]$Paths
+    )
+
+    if (-not (Test-Path variable:script:ExportListFile) -or -not $script:ExportListFile) {
+        return
     }
+    if (-not $Paths -or $Paths.Count -eq 0) {
+        return
+    }
+    $lines = @("# $Description") + $Paths + @("")
+    Add-Content -Path $script:ExportListFile -Value $lines -ErrorAction SilentlyContinue
 }
 
 # ============================================================================
@@ -391,7 +411,7 @@ function Remove-OldFiles {
     )
     
     if (-not (Test-Path $Path)) {
-        return @{ Removed = 0; Size = 0 }
+        return
     }
     
     $cutoffDate = (Get-Date).AddDays(-$DaysOld)
@@ -401,10 +421,8 @@ function Remove-OldFiles {
     
     if ($oldFiles) {
         $paths = $oldFiles | ForEach-Object { $_.FullName }
-        return Remove-SafeItems -Paths $paths -Description "$Description (>${DaysOld}d old)"
+        Remove-SafeItems -Paths $paths -Description "$Description (>${DaysOld}d old)"
     }
-    
-    return @{ Removed = 0; Size = 0 }
 }
 
 function Remove-EmptyDirectories {
@@ -420,7 +438,7 @@ function Remove-EmptyDirectories {
     )
     
     if (-not (Test-Path $Path)) {
-        return @{ Removed = 0 }
+        return
     }
     
     $removedCount = 0
@@ -465,8 +483,6 @@ function Remove-EmptyDirectories {
         }
         Set-SectionActivity
     }
-    
-    return @{ Removed = $removedCount }
 }
 
 function Clear-DirectoryContents {
@@ -482,21 +498,19 @@ function Clear-DirectoryContents {
     )
     
     if (-not (Test-Path $Path)) {
-        return @{ Removed = 0; Size = 0 }
+        return
     }
     
     if (-not (Test-SafePath -Path $Path)) {
-        return @{ Removed = 0; Size = 0 }
+        return
     }
     
     $items = Get-ChildItem -Path $Path -Force -ErrorAction SilentlyContinue
     if ($items) {
         $paths = $items | ForEach-Object { $_.FullName }
         $desc = if ($Description) { $Description } else { Split-Path -Leaf $Path }
-        return Remove-SafeItems -Paths $paths -Description $desc
+        Remove-SafeItems -Paths $paths -Description $desc
     }
-    
-    return @{ Removed = 0; Size = 0 }
 }
 
 # ============================================================================

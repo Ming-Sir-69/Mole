@@ -184,7 +184,7 @@ function Clear-PythonCaches {
     # pytest cache
     $pytestCachePath = "$env:USERPROFILE\.pytest_cache"
     if (Test-Path $pytestCachePath) {
-        Remove-SafeItem -Path $pytestCachePath -Description "pytest cache" -Recurse
+        $null = Remove-SafeItem -Path $pytestCachePath -Description "pytest cache" -Recurse
     }
 }
 
@@ -502,7 +502,7 @@ function Clear-ElixirCaches {
             Where-Object { $_.LastWriteTime -lt $cutoffDate }
         if ($oldHexPackages) {
             foreach ($pkg in $oldHexPackages) {
-                Remove-SafeItem -Path $pkg.FullName -Description "Old Hex package ($($pkg.Name))" -Recurse
+                $null = Remove-SafeItem -Path $pkg.FullName -Description "Old Hex package ($($pkg.Name))" -Recurse
             }
         }
     }
@@ -538,7 +538,7 @@ function Clear-HaskellCaches {
                    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-90) }
         if ($oldDirs) {
             foreach ($dir in $oldDirs) {
-                Remove-SafeItem -Path $dir.FullName -Description "Cabal old store ($($dir.Name))" -Recurse
+                $null = Remove-SafeItem -Path $dir.FullName -Description "Cabal old store ($($dir.Name))" -Recurse
             }
         }
     }
@@ -552,7 +552,7 @@ function Clear-HaskellCaches {
             Where-Object { $_.LastWriteTime -lt $cutoffDate }
         if ($oldProgramDirs) {
             foreach ($dir in $oldProgramDirs) {
-                Remove-SafeItem -Path $dir.FullName -Description "Stack old program ($($dir.Name))" -Recurse
+                $null = Remove-SafeItem -Path $dir.FullName -Description "Stack old program ($($dir.Name))" -Recurse
             }
         }
     }
@@ -717,11 +717,8 @@ function Clear-GitCaches {
         Clean Git temporary files and lock files
     #>
     
-    # Git config locks (stale)
-    $gitConfigLock = "$env:USERPROFILE\.gitconfig.lock"
-    if (Test-Path $gitConfigLock) {
-        Remove-SafeItem -Path $gitConfigLock -Description "Git config lock"
-    }
+    # ~/.gitconfig.lock is left alone: Git holds it while it writes the config,
+    # and neither its age nor an idle git process proves the write is over.
     
     # GitHub CLI cache
     $ghCachePath = "$env:APPDATA\GitHub CLI"

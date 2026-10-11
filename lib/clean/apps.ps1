@@ -155,7 +155,7 @@ function Clear-OrphanedAppData {
         
         foreach ($orphan in $significantOrphans) {
             $orphanSize = Format-ByteSize -Bytes $orphan.Size
-            Remove-SafeItem -Path $orphan.Path -Description "$($orphan.Name) ($orphanSize)" -Recurse
+            $null = Remove-SafeItem -Path $orphan.Path -Description "$($orphan.Name) ($orphanSize)" -Recurse
         }
     }
     

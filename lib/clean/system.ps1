@@ -240,7 +240,7 @@ function Clear-MemoryDumps {
     foreach ($path in $dumpPaths) {
         if (Test-Path $path -PathType Leaf) {
             # Single file (MEMORY.DMP)
-            Remove-SafeItem -Path $path -Description "Memory dump"
+            $null = Remove-SafeItem -Path $path -Description "Memory dump"
         }
         elseif (Test-Path $path -PathType Container) {
             # Directory (Minidump, CrashDumps)

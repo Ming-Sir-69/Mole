@@ -96,7 +96,7 @@ function Clear-FontCache {
     $fontCachePath = "$env:LOCALAPPDATA\Microsoft\Windows\Fonts\FontCache"
     
     if (Test-Path $fontCachePath) {
-        Remove-SafeItem -Path $fontCachePath -Description "Font cache"
+        $null = Remove-SafeItem -Path $fontCachePath -Description "Font cache"
     }
 }
 

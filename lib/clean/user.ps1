@@ -171,7 +171,7 @@ function Clear-ThumbnailCache {
     # Icon cache
     $iconCache = "$env:LOCALAPPDATA\IconCache.db"
     if (Test-Path $iconCache) {
-        Remove-SafeItem -Path $iconCache -Description "Icon cache"
+        $null = Remove-SafeItem -Path $iconCache -Description "Icon cache"
     }
 }
 
@@ -186,15 +186,16 @@ function Clear-ErrorReports {
     #>
     param([int]$DaysOld = 7)
     
+    # One WER root, listed one level deep: a recursive listing counted every
+    # report folder and the files inside it again. CrashDumps is handled with
+    # the memory dumps below, so it is not listed here as well.
     $werPaths = @(
         "$env:LOCALAPPDATA\Microsoft\Windows\WER"
-        "$env:LOCALAPPDATA\CrashDumps"
-        "$env:USERPROFILE\AppData\Local\Microsoft\Windows\WER"
     )
     
     foreach ($path in $werPaths) {
         if (Test-Path $path) {
-            $items = Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue
+            $items = Get-ChildItem -Path $path -Force -ErrorAction SilentlyContinue
             if ($items) {
                 $paths = $items | ForEach-Object { $_.FullName }
                 Remove-SafeItems -Paths $paths -Description "Error reports"

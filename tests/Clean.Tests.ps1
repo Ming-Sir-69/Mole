@@ -203,3 +203,94 @@ Describe "System Cleanup Module" {
         }
     }
 }
+
+Describe "Cleanup accounting" {
+    BeforeEach {
+        $script:SavedLocalAppData = $env:LOCALAPPDATA
+        $script:SavedUserProfile = $env:USERPROFILE
+        $script:SavedAppData = $env:APPDATA
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+        Reset-CleanupStats
+    }
+
+    AfterEach {
+        $env:LOCALAPPDATA = $script:SavedLocalAppData
+        $env:USERPROFILE = $script:SavedUserProfile
+        $env:APPDATA = $script:SavedAppData
+    }
+
+    It "Writes nothing to the pipeline from the bulk helpers" {
+        $dir = Join-Path $script:Root "cache"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -Path (Join-Path $dir "a.tmp") -Value "x"
+        $old = Join-Path $dir "b.tmp"
+        Set-Content -Path $old -Value "x"
+        (Get-Item $old).LastWriteTime = (Get-Date).AddDays(-30)
+
+        @(Clear-DirectoryContents -Path $dir -Description "Test cache").Count | Should -Be 0
+        @(Remove-SafeItems -Paths @($old) -Description "Test items").Count | Should -Be 0
+        @(Remove-OldFiles -Path $dir -DaysOld 7 -Description "Test old").Count | Should -Be 0
+        @(Remove-EmptyDirectories -Path $script:Root).Count | Should -Be 0
+    }
+
+    It "Counts what a dry run would remove" {
+        $dir = Join-Path $script:Root "cache"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -Path (Join-Path $dir "a.tmp") -Value ("x" * 4096)
+        Set-Content -Path (Join-Path $dir "b.tmp") -Value ("x" * 4096)
+
+        Clear-DirectoryContents -Path $dir -Description "Test cache"
+
+        $stats = Get-CleanupStats
+        $stats.FilesCleaned | Should -Be 2
+        $stats.TotalSizeKB | Should -BeGreaterThan 0
+        Test-Path (Join-Path $dir "a.tmp") | Should -BeTrue
+    }
+
+    It "Lists every path a dry run would remove in the preview file" {
+        $dir = Join-Path $script:Root "cache"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $file = Join-Path $dir "a.tmp"
+        Set-Content -Path $file -Value "x"
+        $script:ExportListFile = Join-Path $script:Root "clean-list.txt"
+        try {
+            Clear-DirectoryContents -Path $dir -Description "Test cache"
+            $lines = Get-Content $script:ExportListFile
+            $lines | Should -Contain "# Test cache"
+            $lines | Should -Contain $file
+        }
+        finally {
+            Remove-Variable -Name ExportListFile -Scope Script -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "Counts each crash dump and error report once" {
+        $env:LOCALAPPDATA = Join-Path $script:Root "AppData\Local"
+        $env:USERPROFILE = $script:Root
+        $wer = Join-Path $env:LOCALAPPDATA "Microsoft\Windows\WER\ReportArchive\AppCrash_1"
+        $dumps = Join-Path $env:LOCALAPPDATA "CrashDumps"
+        New-Item -ItemType Directory -Path $wer, $dumps -Force | Out-Null
+        Set-Content -Path (Join-Path $wer "Report.wer") -Value "report"
+        Set-Content -Path (Join-Path $dumps "app.dmp") -Value "dump"
+
+        Clear-ErrorReports
+
+        # One WER root entry (ReportArchive) plus one dump.
+        (Get-CleanupStats).FilesCleaned | Should -Be 2
+    }
+
+    It "Never hands ~/.gitconfig.lock to a delete helper" {
+        $env:USERPROFILE = $script:Root
+        $env:APPDATA = Join-Path $script:Root "AppData\Roaming"
+        $env:LOCALAPPDATA = Join-Path $script:Root "AppData\Local"
+        Set-Content -Path (Join-Path $script:Root ".gitconfig.lock") -Value "lock"
+        Mock Remove-SafeItem { $true }
+        Mock Remove-SafeItems { }
+
+        Clear-GitCaches
+
+        Should -Invoke Remove-SafeItem -Times 0 -ParameterFilter { $Path -like "*.gitconfig.lock" }
+        Should -Invoke Remove-SafeItems -Times 0 -ParameterFilter { @($Paths) -like "*.gitconfig.lock" }
+    }
+}
