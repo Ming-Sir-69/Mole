@@ -1,36 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
-    <!-- Required -->
     <id>mole</id>
-    <version>1.0.0</version>
+    <version>{{VERSION}}</version>
     <title>Mole</title>
-    <authors>Mole Project</authors>
-    <owners>bhadraagada</owners>
-    <description>Deep clean and optimize your Windows system. All-in-one toolkit combining CCleaner, IObit Uninstaller, WinDirStat, and Task Manager functionality for comprehensive Windows system optimization and cleanup.</description>
-    
-    <!-- URLs -->
-    <projectUrl>https://github.com/bhadraagada/mole</projectUrl>
-    <licenseUrl>https://github.com/bhadraagada/mole/blob/windows/LICENSE</licenseUrl>
-    <projectSourceUrl>https://github.com/bhadraagada/mole</projectSourceUrl>
-    <docsUrl>https://github.com/bhadraagada/mole/blob/windows/README.md</docsUrl>
-    <bugTrackerUrl>https://github.com/bhadraagada/mole/issues</bugTrackerUrl>
-    <packageSourceUrl>https://github.com/bhadraagada/mole/tree/windows/packaging/chocolatey</packageSourceUrl>
-    
-    <!-- Optional -->
-    <copyright>2026 Mole Project</copyright>
-    <licenseAcceptanceRequired>false</licenseAcceptanceRequired>
+    <authors>tw93</authors>
+    <owners>tw93</owners>
+    <summary>Deep clean, uninstall apps, optimize, analyze disk, and monitor Windows from the terminal.</summary>
+    <description>Mole is a free, open-source command-line toolkit for Windows maintenance. It cleans caches and temporary files, removes apps together with their leftovers, runs bounded maintenance tasks, explores disk usage, and shows live system status. Every destructive command can be previewed with --dry-run.
+
+Run `mo` for the interactive menu, or `mo clean --dry-run` to preview a cleanup.</description>
+    <projectUrl>https://github.com/tw93/Mole/tree/windows</projectUrl>
+    <projectSourceUrl>https://github.com/tw93/Mole/tree/windows</projectSourceUrl>
+    <packageSourceUrl>https://github.com/tw93/Mole/tree/windows/packaging/chocolatey</packageSourceUrl>
+    <docsUrl>https://github.com/tw93/Mole/blob/windows/README.md</docsUrl>
+    <bugTrackerUrl>https://github.com/tw93/Mole/issues</bugTrackerUrl>
+    <licenseUrl>https://github.com/tw93/Mole/blob/windows/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <releaseNotes>https://github.com/bhadraagada/mole/releases/tag/v1.0.0</releaseNotes>
-    <summary>Windows system cleanup and optimization tool</summary>
-    
-    <!-- Tags -->
-    <tags>cleanup optimizer maintenance disk-space uninstaller system-tools windows admin</tags>
-    
-    <!-- Icon (optional, add if available) -->
-    <!-- <iconUrl>https://github.com/bhadraagada/mole/raw/windows/icon.png</iconUrl> -->
+    <releaseNotes>https://github.com/tw93/Mole/releases/tag/{{TAG}}</releaseNotes>
+    <tags>mole cleanup cache disk-space uninstaller maintenance cli foss</tags>
   </metadata>
-  
   <files>
     <file src="tools\**" target="tools" />
   </files>

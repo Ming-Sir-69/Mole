@@ -1,48 +1,30 @@
-# Mole Package Manager Manifests
+# Package Manager Manifests
 
-This directory contains templates and configurations for publishing Mole to various Windows package managers.
+Templates for publishing Mole for Windows to winget, Scoop and Chocolatey. They are filled per release by `scripts/render-packaging.ps1`; never submit a template as is.
 
-## Directory Structure
+| Manager | Package | Command on PATH | Update command |
+|---|---|---|---|
+| winget | `tw93.Mole` | `mo` | `winget upgrade tw93.Mole` |
+| Scoop | `mole` | `mo`, `mole` | `scoop update mole` |
+| Chocolatey | `mole` | `mo`, `mole` | `choco upgrade mole` |
 
+Every manager installs the signed `mole-<version>-x64.zip` from the GitHub release and starts Mole through the `mo.exe` launcher at the archive root. `mo update` recognizes these installs and prints the matching update command instead of pulling from git.
+
+## Render
+
+After the signed release is published:
+
+```powershell
+gh release download V1.31.0-windows --repo tw93/Mole --pattern SHA256SUMS.txt --dir release
+.\scripts\render-packaging.ps1 -Version 1.31.0 -SumsFile release\SHA256SUMS.txt
 ```
-packaging/
-├── winget/           # WinGet manifests
-├── chocolatey/       # Chocolatey package
-├── scoop/            # Scoop manifest
-└── README.md         # This file
-```
 
-## Quick Links
+The manifests land in `release\packaging\`.
 
-- **Main Release Guide:** [../RELEASE.md](../RELEASE.md)
-- **Issue #343:** https://github.com/bhadraagada/mole/issues/343
-- **Build Scripts:** [../scripts/](../scripts/)
+## Submit
 
-## Package Manager Status
+- **winget**: copy `release\packaging\winget\manifests\t\tw93\Mole\<version>\` into a fork of [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) at the same path, check it with `winget validate --manifest <folder>` and `winget install --manifest <folder>`, then open a pull request.
+- **Scoop**: `release\packaging\scoop\mole.json` goes to a bucket. Its `checkver` and `autoupdate` follow later `V<version>-windows` releases on their own.
+- **Chocolatey**: run `choco pack` in `release\packaging\chocolatey\`, test with `choco install mole --source .`, then `choco push` with the community API key.
 
-| Package Manager | Status | Priority | Documentation |
-|----------------|--------|----------|---------------|
-| **WinGet** | 🔴 Not Published | High | [winget/README.md](winget/README.md) |
-| **Chocolatey** | 🔴 Not Published | High | [chocolatey/README.md](chocolatey/README.md) |
-| **Scoop** | 🔴 Not Published | Medium | [scoop/README.md](scoop/README.md) |
-
-## Publishing Order (Recommended)
-
-1. **Create GitHub Release** - Upload ZIP and checksums
-2. **Scoop** - Easiest, fastest approval (~3-5 days)
-3. **WinGet** - Official Microsoft, widest reach (~1-2 weeks)
-4. **Chocolatey** - Popular with devs (~1-2 weeks)
-
-## Prerequisites
-
-- GitHub release with ZIP file uploaded
-- SHA256 checksum available
-- Version tagged in git (e.g., v1.0.0)
-
-## Getting Started
-
-See [RELEASE.md](../RELEASE.md) for complete instructions on:
-- Building release artifacts
-- Testing locally
-- Submitting to each package manager
-- Automation with GitHub Actions
+The first submission to each registry reserves the name; later releases only bump the version and checksum.

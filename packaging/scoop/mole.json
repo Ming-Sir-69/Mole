@@ -1,33 +1,25 @@
 {
-    "version": "1.0.0",
-    "description": "Deep clean and optimize your Windows system. All-in-one toolkit for Windows maintenance.",
-    "homepage": "https://github.com/bhadraagada/mole",
-    "license": "MIT",
-    "url": "https://github.com/bhadraagada/mole/releases/download/v1.0.0/mole-1.0.0-x64.zip",
-    "hash": "c5671df0196ddd8aa172845c537b47159e752d7555676a04c0d95a971f4a11d3",
-    "bin": "mole.ps1",
-    "shortcuts": [
+    "version": "{{VERSION}}",
+    "description": "Deep clean, uninstall apps, optimize, analyze disk, and monitor Windows from the terminal.",
+    "homepage": "https://github.com/tw93/Mole/tree/windows",
+    "license": "GPL-3.0",
+    "url": "{{ZIP_URL}}",
+    "hash": "{{ZIP_SHA256}}",
+    "bin": [
+        "mo.exe",
         [
-            "mole.ps1",
-            "Mole"
+            "mo.exe",
+            "mole"
         ]
     ],
     "checkver": {
-        "github": "https://github.com/bhadraagada/mole"
+        "url": "https://github.com/tw93/Mole/releases",
+        "regex": "/releases/tag/V([\\d.]+)-windows"
     },
     "autoupdate": {
-        "url": "https://github.com/bhadraagada/mole/releases/download/v$version/mole-$version-x64.zip"
-    },
-    "notes": [
-        "Mole has been installed successfully!",
-        "Run 'mole' or 'mole.ps1' to get started.",
-        "",
-        "Available commands:",
-        "  mole clean     - Deep system cleanup",
-        "  mole uninstall - Remove unwanted apps",
-        "  mole analyze   - Disk space analysis",
-        "  mole status    - System health check",
-        "  mole optimize  - Rebuild caches",
-        "  mole purge     - Remove dev artifacts"
-    ]
+        "url": "https://github.com/tw93/Mole/releases/download/V$version-windows/mole-$version-x64.zip",
+        "hash": {
+            "url": "$baseurl/SHA256SUMS.txt"
+        }
+    }
 }

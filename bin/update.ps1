@@ -139,6 +139,24 @@ if ($ShowHelp) {
     return
 }
 
+# The upgrade command for a copy installed by winget, Scoop or Chocolatey,
+# recognized by the folder each one installs into; $null otherwise.
+function Get-PackageManagerUpgradeCommand {
+    param([string]$InstallDir)
+
+    $path = $InstallDir.TrimEnd('\') + '\'
+    if ($path -like "*\Microsoft\WinGet\Packages\tw93.Mole_*") {
+        return "winget upgrade tw93.Mole"
+    }
+    if ($path -like "*\scoop\apps\mole\*") {
+        return "scoop update mole"
+    }
+    if ($path -like "*\chocolatey\lib\mole\*") {
+        return "choco upgrade mole"
+    }
+    return $null
+}
+
 if ($DebugMode) {
     $env:MOLE_DEBUG = "1"
 }
@@ -154,6 +172,13 @@ if (-not (Test-Path $installScript)) {
 }
 
 if (-not (Test-Path $gitDir)) {
+    # Package-manager installs update through that manager, never through git.
+    $upgradeCommand = Get-PackageManagerUpgradeCommand -InstallDir $windowsDir
+    if ($upgradeCommand) {
+        Write-Host "This copy of Mole is managed by a package manager." -ForegroundColor Yellow
+        Write-Host "Update it with: $upgradeCommand" -ForegroundColor Yellow
+        exit 1
+    }
     Write-Host "This installation is not a git-based source install." -ForegroundColor Red
     Write-Host "Reinstall with quick-install to enable 'mo update'." -ForegroundColor Yellow
     exit 1
