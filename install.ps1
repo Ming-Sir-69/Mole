@@ -478,7 +478,10 @@ set "ARGS=!ARGS! '%~1'"
 shift
 goto parse
 :run
-powershell.exe -ExecutionPolicy Bypass -NoLogo -NoProfile -Command "& '%MOLE_DIR%mole.ps1' !ARGS!"
+rem mo remove deletes this file while it runs. (goto) ends the batch context
+rem first, so cmd never reads the deleted file again; %%-variables expand when
+rem the line is parsed, before the context ends. The exit code passes through.
+(goto) 2>nul & powershell.exe -ExecutionPolicy Bypass -NoLogo -NoProfile -Command "& '%MOLE_DIR%mole.ps1' %ARGS%; exit `$LASTEXITCODE"
 "@
     $batchPath = Join-Path $InstallDir "mole.cmd"
     Set-Content -Path $batchPath -Value $batchContent -Encoding ASCII
