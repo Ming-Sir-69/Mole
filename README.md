@@ -1,3 +1,5 @@
+<p align="right"><a href="https://github.com/tw93/Mole">macOS</a> · <b>Windows</b></p>
+
 <div align="center">
   <h1>Mole for Windows</h1>
   <p><b>Deep clean, uninstall apps, optimize, analyze disk, and monitor your Windows PC. Free open-source CLI.</b></p>
