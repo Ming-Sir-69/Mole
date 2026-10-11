@@ -437,9 +437,9 @@ function Show-Summary {
     $sizeHuman = Format-ByteSize -Bytes $SizeBytes
     
     Write-Host ""
-    Write-Host "  $($green)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$($nc)"
+    Write-Host "  $($green)$([string][char]0x2501 * 48)$($nc)"
     Write-Host "  $($green)$($script:Icons.Success)$($nc) $($Action): $($cyan)$($sizeHuman)$($nc) across $($cyan)$($ItemCount)$($nc) items"
-    Write-Host "  $($green)━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━$($nc)"
+    Write-Host "  $($green)$([string][char]0x2501 * 48)$($nc)"
     Write-Host ""
 }
 

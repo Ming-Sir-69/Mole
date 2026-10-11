@@ -47,7 +47,7 @@ jobs:
       - name: Check PowerShell syntax
         run: |
           $hasErrors = $false
-          $scripts = Get-ChildItem -Path . -Recurse -Include "*.ps1" -Exclude "*.Tests.ps1"
+          $scripts = Get-ChildItem -Path . -Recurse -Include "*.ps1"
           foreach ($script in $scripts) {
             $errors = $null
             $null = [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$errors)
@@ -59,4 +59,6 @@ jobs:
           }
           if ($hasErrors) { exit 1 }
           Write-Host "All PowerShell scripts have valid syntax" -ForegroundColor Green
-        shell: pwsh
+        # Windows PowerShell 5.1 reads BOM-less files through the ANSI code
+        # page, so parsing here also catches non-ASCII text without a BOM.
+        shell: powershell

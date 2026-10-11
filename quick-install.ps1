@@ -23,17 +23,17 @@ $Colors = @{
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "  $($Colors.Cyan)→$($Colors.NC) $Message"
+    Write-Host "  $($Colors.Cyan)$([char]0x2192)$($Colors.NC) $Message"
 }
 
 function Write-Success {
     param([string]$Message)
-    Write-Host "  $($Colors.Green)✓$($Colors.NC) $Message"
+    Write-Host "  $($Colors.Green)$([char]0x2713)$($Colors.NC) $Message"
 }
 
 function Write-ErrorMsg {
     param([string]$Message)
-    Write-Host "  $($Colors.Red)✗$($Colors.NC) $Message"
+    Write-Host "  $($Colors.Red)$([char]0x2717)$($Colors.NC) $Message"
 }
 
 function Test-SourceInstall {
@@ -96,7 +96,7 @@ function Get-PowerShellCommand {
 try {
     Write-Host ""
     Write-Host "  $($Colors.Cyan)Mole Quick Installer$($Colors.NC)"
-    Write-Host "  $($Colors.Yellow)Installing experimental Windows source channel...$($Colors.NC)"
+    Write-Host "  $($Colors.Yellow)Installing Mole from the windows branch...$($Colors.NC)"
     Write-Host ""
 
     # Check prerequisites
