@@ -5,11 +5,24 @@
 #Requires -Version 5.1
 
 param(
-    [string]$InstallDir = "$env:LOCALAPPDATA\Mole"
+    [string]$InstallDir
 )
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+
+# 1.30.0 installed into %LOCALAPPDATA%\Mole, which is also the Mole for Windows
+# app's data folder. Keep updating such a source install in place; new
+# installs go to their own folder.
+if (-not $InstallDir) {
+    $legacyDir = Join-Path $env:LOCALAPPDATA "Mole"
+    if ((Test-Path (Join-Path $legacyDir ".git")) -and (Test-Path (Join-Path $legacyDir "mole.ps1"))) {
+        $InstallDir = $legacyDir
+    }
+    else {
+        $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
+    }
+}
 
 # Colors
 $ESC = [char]27

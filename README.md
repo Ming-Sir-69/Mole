@@ -68,7 +68,7 @@ mo analyze D:\               # Analyze another drive
 To review the code before installing, clone the `windows` branch and run the installer in place. It keeps `.git`, so `mo update` works later:
 
 ```powershell
-$installDir = "$env:LOCALAPPDATA\Mole"
+$installDir = "$env:LOCALAPPDATA\Programs\mole-cli"
 git clone --branch windows https://github.com/tw93/Mole.git $installDir
 powershell -ExecutionPolicy Bypass -File "$installDir\install.ps1" -InstallDir $installDir -AddToPath
 ```

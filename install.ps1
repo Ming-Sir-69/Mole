@@ -4,7 +4,9 @@
 
 #Requires -Version 5.1
 param(
-    [string]$InstallDir = "$env:LOCALAPPDATA\Mole",
+    # %LOCALAPPDATA%\Mole is the Mole for Windows app's data folder, so new
+    # installs never go there; see Uninstall-Mole for installs that already did.
+    [string]$InstallDir = "$env:LOCALAPPDATA\Programs\mole-cli",
     [switch]$AddToPath,
     [switch]$CreateShortcut,
     [switch]$Uninstall,
@@ -14,6 +16,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
+$script:InstallDirGiven = $PSBoundParameters.ContainsKey("InstallDir")
 
 # ============================================================================
 # Configuration
@@ -141,6 +144,7 @@ function Test-ProtectedInstallRoot {
         $env:USERPROFILE
         [Environment]::GetFolderPath("UserProfile")
         $env:LOCALAPPDATA
+        (Join-Path $env:LOCALAPPDATA "Programs")
         $env:APPDATA
         $env:ProgramFiles
         ${env:ProgramFiles(x86)}
@@ -187,7 +191,7 @@ function Show-InstallerHelp {
     Write-Host "  $($c.Green)OPTIONS:$($c.NC)"
     Write-Host ""
     Write-Host "    $($c.Cyan)-InstallDir <path>$($c.NC)   Installation directory"
-    Write-Host "                         Default: $env:LOCALAPPDATA\Mole"
+    Write-Host "                         Default: $env:LOCALAPPDATA\Programs\mole-cli"
     Write-Host ""
     Write-Host "    $($c.Cyan)-AddToPath$($c.NC)           Add Mole to user PATH"
     Write-Host ""
@@ -518,21 +522,47 @@ powershell.exe -ExecutionPolicy Bypass -NoLogo -NoProfile -Command "& '%MOLE_DIR
 # Uninstall
 # ============================================================================
 
+# Top-level entries a Mole CLI install can hold: the repository tree, files
+# older releases shipped, git metadata and the launchers this script writes.
+# Anything else in the folder belongs to someone else and is kept.
+function Get-MoleInstallEntries {
+    return @(
+        ".editorconfig", ".git", ".gitattributes", ".github", ".gitignore", ".golangci.yml", ".shellcheckrc",
+        "AGENTS.md", "CONTRIBUTING.md", "CONTRIBUTORS.svg", "ISSUE-343-SUMMARY.md", "LICENSE", "Makefile",
+        "README.md", "RELEASE.md", "SECURITY.md", "SECURITY_AUDIT.md", "TRADEMARK.md", "VERSION",
+        "bin", "cmd", "go.mod", "go.sum", "install.ps1", "lib", "mo.cmd", "mo.exe", "mole.cmd", "mole.ps1",
+        "packaging", "quick-install.ps1", "scripts", "tests"
+    )
+}
+
+function Test-MoleInstallDir {
+    param([string]$Path)
+
+    return (Test-Path -LiteralPath (Join-Path $Path "mole.ps1")) -and
+        (Test-Path -LiteralPath (Join-Path $Path "lib\core\base.ps1"))
+}
+
 function Uninstall-Mole {
     Write-Info "Uninstalling Mole..."
     Write-Host ""
 
-    # Check for existing installation
-    $configPath = Join-Path $env:LOCALAPPDATA "Mole"
-    $installPath = if (Test-Path $InstallDir) { $InstallDir } elseif (Test-Path $configPath) { $configPath } else { $null }
+    # Without -InstallDir, remove the install this script belongs to. There is
+    # no fallback to %LOCALAPPDATA%\Mole: that is the Mole for Windows app's
+    # data folder, and 1.30.0 removed it whole.
+    $installPath = if ($script:InstallDirGiven) { $InstallDir } else { $script:SourceDir }
 
-    if (-not $installPath) {
-        Write-MoleWarning "Mole is not installed"
+    if (-not (Test-Path -LiteralPath $installPath)) {
+        Write-MoleWarning "Mole is not installed at $installPath"
         return $true
     }
 
     if (Test-ProtectedInstallRoot -Path $installPath) {
         Write-MoleError "Refusing to remove protected install directory: $installPath"
+        return $false
+    }
+
+    if (-not (Test-MoleInstallDir -Path $installPath)) {
+        Write-MoleError "$installPath is not a Mole install (no mole.ps1); nothing was removed"
         return $false
     }
 
@@ -542,14 +572,37 @@ function Uninstall-Mole {
     # Remove shortcut
     Remove-StartMenuShortcut -ShortcutName $script:ShortcutName
 
-    # Remove installation directory
-    try {
-        Remove-Item -LiteralPath $installPath -Recurse -Force
-        Write-Success "Removed directory: $installPath"
+    # Remove only what Mole installed; another app may share the folder
+    # (Mole for Windows keeps its license and settings in %LOCALAPPDATA%\Mole).
+    $known = Get-MoleInstallEntries
+    $kept = @()
+    foreach ($entry in @(Get-ChildItem -LiteralPath $installPath -Force)) {
+        if ($known -notcontains $entry.Name) {
+            $kept += $entry.Name
+            continue
+        }
+        try {
+            Remove-Item -LiteralPath $entry.FullName -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            Write-MoleError "Failed to remove $($entry.FullName): $_"
+            return $false
+        }
     }
-    catch {
-        Write-MoleError "Failed to remove directory: $_"
-        return $false
+
+    if ($kept.Count -eq 0) {
+        try {
+            Remove-Item -LiteralPath $installPath -Force -ErrorAction Stop
+            Write-Success "Removed directory: $installPath"
+        }
+        catch {
+            Write-MoleError "Failed to remove directory: $_"
+            return $false
+        }
+    }
+    else {
+        Write-Success "Removed Mole from: $installPath"
+        Write-MoleWarning "Kept $($kept.Count) item(s) Mole did not install: $($kept -join ', ')"
     }
 
     # Remove config directory if different from install
