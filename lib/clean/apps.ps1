@@ -174,12 +174,8 @@ function Clear-OfficeCache {
     
     $officeCachePaths = @(
         # Office 365 / 2019 / 2021
-        "$env:LOCALAPPDATA\Microsoft\Office\16.0\OfficeFileCache"
         "$env:LOCALAPPDATA\Microsoft\Office\16.0\Wef"
-        "$env:LOCALAPPDATA\Microsoft\Outlook\RoamCache"
         "$env:LOCALAPPDATA\Microsoft\Outlook\Offline Address Books"
-        # Older Office versions
-        "$env:LOCALAPPDATA\Microsoft\Office\15.0\OfficeFileCache"
         # Office temp files
         "$env:APPDATA\Microsoft\Templates\*.tmp"
         "$env:APPDATA\Microsoft\Word\*.tmp"
@@ -211,40 +207,12 @@ function Clear-OneDriveCache {
     #>
     
     $oneDriveCachePaths = @(
-        "$env:LOCALAPPDATA\Microsoft\OneDrive\logs"
         "$env:LOCALAPPDATA\Microsoft\OneDrive\setup\logs"
     )
     
     foreach ($path in $oneDriveCachePaths) {
         if (Test-Path $path) {
             Remove-OldFiles -Path $path -DaysOld 7 -Description "OneDrive logs"
-        }
-    }
-}
-
-function Clear-DropboxCache {
-    <#
-    .SYNOPSIS
-        Clean Dropbox cache
-    #>
-    
-    # Dropbox cache is typically in the Dropbox folder itself
-    $dropboxInfoPath = "$env:LOCALAPPDATA\Dropbox\info.json"
-    
-    if (Test-Path $dropboxInfoPath) {
-        try {
-            $dropboxInfo = Get-Content $dropboxInfoPath | ConvertFrom-Json
-            $dropboxPath = $dropboxInfo.personal.path
-            
-            if ($dropboxPath) {
-                $dropboxCachePath = "$dropboxPath\.dropbox.cache"
-                if (Test-Path $dropboxCachePath) {
-                    Clear-DirectoryContents -Path $dropboxCachePath -Description "Dropbox cache"
-                }
-            }
-        }
-        catch {
-            Write-Debug "Could not read Dropbox config: $_"
         }
     }
 }
@@ -687,7 +655,6 @@ function Invoke-AppCleanup {
     # Productivity apps
     Clear-OfficeCache
     Clear-OneDriveCache
-    Clear-DropboxCache
     Clear-GoogleDriveCache
     
     # Creative apps

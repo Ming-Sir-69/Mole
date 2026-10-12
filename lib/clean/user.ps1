@@ -121,30 +121,6 @@ function Clear-RecycleBin {
 }
 
 # ============================================================================
-# Recent Files Cleanup
-# ============================================================================
-
-function Clear-RecentFiles {
-    <#
-    .SYNOPSIS
-        Clean old recent file shortcuts
-    #>
-    param([int]$DaysOld = 30)
-    
-    $recentPath = "$env:APPDATA\Microsoft\Windows\Recent"
-    
-    if (Test-Path $recentPath) {
-        Remove-OldFiles -Path $recentPath -DaysOld $DaysOld -Filter "*.lnk" -Description "Old recent shortcuts"
-    }
-    
-    # AutomaticDestinations (jump lists)
-    $autoDestPath = "$recentPath\AutomaticDestinations"
-    if (Test-Path $autoDestPath) {
-        Remove-OldFiles -Path $autoDestPath -DaysOld $DaysOld -Description "Old jump list entries"
-    }
-}
-
-# ============================================================================
 # Thumbnail Cache Cleanup
 # ============================================================================
 
@@ -206,7 +182,6 @@ function Clear-ErrorReports {
     # Memory dumps
     $dumpPaths = @(
         "$env:LOCALAPPDATA\CrashDumps"
-        "$env:USERPROFILE\*.dmp"
     )
     
     foreach ($path in $dumpPaths) {
@@ -255,7 +230,6 @@ function Clear-UserLogs {
     $logLocations = @(
         "$env:LOCALAPPDATA\Temp\*.log"
         "$env:APPDATA\*.log"
-        "$env:USERPROFILE\*.log"
     )
     
     foreach ($location in $logLocations) {
@@ -328,7 +302,6 @@ function Invoke-UserCleanup {
     
     # Always clean these
     Clear-UserTempFiles -DaysOld $TempDaysOld
-    Clear-RecentFiles -DaysOld 30
     Clear-ThumbnailCache
     Clear-ErrorReports -DaysOld 7
     Clear-UserLogs -DaysOld $LogDaysOld

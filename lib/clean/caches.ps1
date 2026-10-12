@@ -228,10 +228,7 @@ function Clear-AppCaches {
     $teamsCachePaths = @(
         "$env:APPDATA\Microsoft\Teams\Cache"
         "$env:APPDATA\Microsoft\Teams\blob_storage"
-        "$env:APPDATA\Microsoft\Teams\databases"
         "$env:APPDATA\Microsoft\Teams\GPUCache"
-        "$env:APPDATA\Microsoft\Teams\IndexedDB"
-        "$env:APPDATA\Microsoft\Teams\Local Storage"
         "$env:APPDATA\Microsoft\Teams\tmp"
     )
     foreach ($path in $teamsCachePaths) {
@@ -253,12 +250,6 @@ function Clear-AppCaches {
         if (Test-Path $path) {
             Clear-DirectoryContents -Path $path -Description "VS Code cache"
         }
-    }
-    
-    # Zoom
-    $zoomCachePath = "$env:APPDATA\Zoom\data"
-    if (Test-Path $zoomCachePath) {
-        Clear-DirectoryContents -Path $zoomCachePath -Description "Zoom cache"
     }
     
     # Adobe Creative Cloud

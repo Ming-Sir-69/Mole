@@ -175,12 +175,6 @@ function Clear-PythonCaches {
         }
     }
     
-    # Jupyter runtime
-    $jupyterRuntimePath = "$env:APPDATA\jupyter\runtime"
-    if (Test-Path $jupyterRuntimePath) {
-        Clear-DirectoryContents -Path $jupyterRuntimePath -Description "Jupyter runtime"
-    }
-    
     # pytest cache
     $pytestCachePath = "$env:USERPROFILE\.pytest_cache"
     if (Test-Path $pytestCachePath) {
@@ -436,31 +430,13 @@ function Clear-DockerCaches {
 function Clear-CloudCliCaches {
     <#
     .SYNOPSIS
-        Clean cloud CLI tool caches (AWS, Azure, GCP)
+        Clean cloud CLI tool caches (gcloud logs, Terraform plugins)
     #>
-    
-    # AWS CLI cache
-    $awsCachePath = "$env:USERPROFILE\.aws\cli\cache"
-    if (Test-Path $awsCachePath) {
-        Clear-DirectoryContents -Path $awsCachePath -Description "AWS CLI cache"
-    }
-    
-    # Azure CLI logs
-    $azureLogsPath = "$env:USERPROFILE\.azure\logs"
-    if (Test-Path $azureLogsPath) {
-        Clear-DirectoryContents -Path $azureLogsPath -Description "Azure CLI logs"
-    }
     
     # Google Cloud logs
     $gcloudLogsPath = "$env:APPDATA\gcloud\logs"
     if (Test-Path $gcloudLogsPath) {
         Clear-DirectoryContents -Path $gcloudLogsPath -Description "gcloud logs"
-    }
-    
-    # Kubernetes cache
-    $kubeCachePath = "$env:USERPROFILE\.kube\cache"
-    if (Test-Path $kubeCachePath) {
-        Clear-DirectoryContents -Path $kubeCachePath -Description "Kubernetes cache"
     }
     
     # Terraform plugin cache
@@ -493,19 +469,6 @@ function Clear-ElixirCaches {
     if (Test-Path $hexCachePath) {
         Clear-DirectoryContents -Path $hexCachePath -Description "Hex cache"
     }
-    
-    # Hex packages - use age-based cleanup to preserve actively used packages
-    $hexPackagesPath = "$env:USERPROFILE\.hex\packages"
-    if (Test-Path $hexPackagesPath) {
-        $cutoffDate = (Get-Date).AddDays(-90)
-        $oldHexPackages = Get-ChildItem -Path $hexPackagesPath -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -lt $cutoffDate }
-        if ($oldHexPackages) {
-            foreach ($pkg in $oldHexPackages) {
-                $null = Remove-SafeItem -Path $pkg.FullName -Description "Old Hex package ($($pkg.Name))" -Recurse
-            }
-        }
-    }
 }
 
 # ============================================================================
@@ -518,18 +481,6 @@ function Clear-HaskellCaches {
         Clean Haskell Cabal and Stack caches
     #>
     
-    # Cabal packages cache - use age-based cleanup to preserve recently used packages
-    $cabalPackagesPath = "$env:USERPROFILE\.cabal\packages"
-    if (Test-Path $cabalPackagesPath) {
-        $cutoffDate = (Get-Date).AddDays(-90)
-        $oldCacheItems = Get-ChildItem -Path $cabalPackagesPath -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -lt $cutoffDate }
-        if ($oldCacheItems) {
-            $paths = $oldCacheItems | ForEach-Object { $_.FullName }
-            Remove-SafeItems -Paths $paths -Description "Cabal old packages cache"
-        }
-    }
-    
     # Cabal store
     $cabalStorePath = "$env:USERPROFILE\.cabal\store"
     if (Test-Path $cabalStorePath) {
@@ -539,20 +490,6 @@ function Clear-HaskellCaches {
         if ($oldDirs) {
             foreach ($dir in $oldDirs) {
                 $null = Remove-SafeItem -Path $dir.FullName -Description "Cabal old store ($($dir.Name))" -Recurse
-            }
-        }
-    }
-    
-    # Stack programs cache - use age-based cleanup (contains GHC installations)
-    # These can be large and time-consuming to re-download
-    $stackProgramsPath = "$env:USERPROFILE\.stack\programs"
-    if (Test-Path $stackProgramsPath) {
-        $cutoffDate = (Get-Date).AddDays(-90)
-        $oldProgramDirs = Get-ChildItem -Path $stackProgramsPath -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -lt $cutoffDate }
-        if ($oldProgramDirs) {
-            foreach ($dir in $oldProgramDirs) {
-                $null = Remove-SafeItem -Path $dir.FullName -Description "Stack old program ($($dir.Name))" -Recurse
             }
         }
     }
