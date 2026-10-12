@@ -137,7 +137,7 @@ jobs:
           make_latest: false
           generate_release_notes: false
           body: |
-            ## Mole Windows CLI ${{ steps.version.outputs.VERSION }}
+            ## Mole for Windows (CLI) ${{ steps.version.outputs.VERSION }}
 
             Install from PowerShell:
 

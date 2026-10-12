@@ -388,7 +388,7 @@ function Show-Banner {
     Write-Host "$green __  __       _      $nc"
     Write-Host "$green|  \/  | ___ | | ___ $nc"
     Write-Host "$green| |\/| |/ _ \| |/ _ \$nc"
-    Write-Host "$green| |  | | (_) | |  __/$nc  ${blue}https://github.com/tw93/Mole/tree/windows$nc"
+    Write-Host "$green| |  | | (_) | |  __/$nc  ${blue}https://mole.fit/windows$nc"
     Write-Host "$green|_|  |_|\___/|_|\___|$nc  ${green}Deep clean and optimize your PC.$nc"
     Write-Host ""
 }

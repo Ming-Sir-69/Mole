@@ -1,7 +1,7 @@
 <p align="right"><a href="https://github.com/tw93/Mole">macOS</a> · <b>Windows</b></p>
 
 <div align="center">
-  <h1>Mole</h1>
+  <h1>Mole for Windows</h1>
   <p><b>Deep clean, uninstall apps, optimize, analyze disk, and monitor your Windows PC. Free open-source CLI.</b></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/Mole/releases"><img src="https://img.shields.io/github/v/release/tw93/mole?filter=*-windows&include_prereleases&label=version&style=flat-square" alt="Version"></a>
@@ -12,10 +12,10 @@
 </div>
 
 <p align="center">
-  <img src="./docs/img/mole-windows.png" alt="Mole Windows CLI menu" width="1000" />
+  <img src="./docs/img/mole-windows.png" alt="Mole for Windows menu" width="1000" />
 </p>
 
-> 💡 This branch is the free open-source Windows CLI (`mo`). The macOS CLI lives on the [main branch](https://github.com/tw93/Mole).
+> 💡 This branch is the free open-source Windows CLI (`mo`). Prefer a native app? [Mole for Windows](https://mole.fit/windows) is a separate download with review-before-delete cleanup, app updates, startup management, disk drill-downs, and live status. The macOS CLI lives on the [main branch](https://github.com/tw93/Mole).
 
 ## Features
 
@@ -42,7 +42,7 @@ scoop install mole
 iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
 ```
 
-Mole is only distributed through this GitHub repository and Scoop. Sites offering a "Mole-based" app or asking you to paste an encoded command into a terminal are not affiliated with Mole.
+Mole is only distributed through this GitHub repository, Scoop, and [mole.fit](https://mole.fit/windows) for the Windows app. Sites offering a "Mole-based" app or asking you to paste an encoded command into a terminal are not affiliated with Mole.
 
 **Run**
 

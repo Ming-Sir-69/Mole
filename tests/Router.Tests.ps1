@@ -66,9 +66,9 @@ Describe "mo --help and --version" {
         $script:Mole = Join-Path $script:WindowsDir "mole.ps1"
     }
 
-    It "Shows the logo with the Windows branch link and the macOS command layout" {
+    It "Shows the logo with the Windows website and the macOS command layout" {
         $output = (& powershell -NoProfile -ExecutionPolicy Bypass -Command "& '$($script:Mole)' '--help'" 2>&1 | Out-String)
-        $output | Should -Match "https://github\.com/tw93/Mole/tree/windows"
+        $output | Should -Match "https://mole\.fit/windows"
         $output | Should -Match "COMMANDS"
         $output | Should -Match "mo uninstall --dry-run"
     }
