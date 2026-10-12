@@ -161,6 +161,7 @@ Describe "Clean leaves user data alone" {
             "$env:APPDATA\jupyter\runtime"
             "$env:USERPROFILE\.hex\packages"
             "$env:USERPROFILE\.cabal\packages"
+            "$env:USERPROFILE\.cabal\store"
             "$env:USERPROFILE\.stack\programs"
         )
         $files = @(
@@ -182,6 +183,7 @@ Describe "Clean leaves user data alone" {
             "$env:APPDATA\jupyter\runtime\kernel-1.json"
             "$env:USERPROFILE\.hex\packages\hexpm\phoenix\mix.exs"
             "$env:USERPROFILE\.cabal\packages\hackage.haskell.org\aeson\aeson.tar.gz"
+            "$env:USERPROFILE\.cabal\store\ghc-9.4.7\aeson-2.1.2.1\cabal-hash.txt"
             "$env:USERPROFILE\.stack\programs\x86_64-windows\ghc-9.4.7\bin\ghc.exe"
             "$env:USERPROFILE\memory.dmp"
             "$env:USERPROFILE\install.log"
@@ -197,6 +199,7 @@ Describe "Clean leaves user data alone" {
         # The Hex and Stack rows pruned top-level folders by their own age.
         Get-ChildItem -Path "$env:USERPROFILE\.hex\packages" -Directory | ForEach-Object { $_.LastWriteTime = $old }
         Get-ChildItem -Path "$env:USERPROFILE\.stack\programs" -Directory | ForEach-Object { $_.LastWriteTime = $old }
+        Get-ChildItem -Path "$env:USERPROFILE\.cabal\store" -Directory | ForEach-Object { $_.LastWriteTime = $old }
         New-Item -ItemType Directory -Path "$env:LOCALAPPDATA\Dropbox" -Force | Out-Null
         @{ personal = @{ path = $dropbox } } | ConvertTo-Json | Set-Content -Path "$env:LOCALAPPDATA\Dropbox\info.json"
 
@@ -240,7 +243,7 @@ Describe "Clean leaves user data alone" {
         "Zoom\data", "Teams\IndexedDB", "Teams\Local Storage", "Teams\databases", "Windows\Recent",
         "Office\16.0\OfficeFileCache", "Office\15.0\OfficeFileCache", "Outlook\RoamCache", "OneDrive\logs",
         ".dropbox.cache", ".aws", ".azure", ".kube", "jupyter\runtime", ".hex\packages", ".cabal\packages",
-        ".stack\programs"
+        ".cabal\store", ".stack\programs"
     ) {
         $leaf = $_
         $dir = @($script:UserData | Where-Object { $_.EndsWith("\$leaf") })[0]

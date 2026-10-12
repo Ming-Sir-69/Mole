@@ -478,22 +478,11 @@ function Clear-ElixirCaches {
 function Clear-HaskellCaches {
     <#
     .SYNOPSIS
-        Clean Haskell Cabal and Stack caches
+        Clean Haskell Stack temp files
     #>
-    
-    # Cabal store
-    $cabalStorePath = "$env:USERPROFILE\.cabal\store"
-    if (Test-Path $cabalStorePath) {
-        # Only clean old/unused packages - be careful here
-        $oldDirs = Get-ChildItem -Path $cabalStorePath -Directory -ErrorAction SilentlyContinue |
-                   Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-90) }
-        if ($oldDirs) {
-            foreach ($dir in $oldDirs) {
-                $null = Remove-SafeItem -Path $dir.FullName -Description "Cabal old store ($($dir.Name))" -Recurse
-            }
-        }
-    }
-    
+
+    # The Cabal store holds installed packages, not a cache: an old timestamp
+    # does not mean no project depends on it.
     # Stack snapshots (be careful - these are needed for builds)
     $stackSnapshotsPath = "$env:USERPROFILE\.stack\snapshots"
     if (Test-Path $stackSnapshotsPath) {
