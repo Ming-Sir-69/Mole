@@ -23,7 +23,7 @@
 - **Deep clean**: Removes temp files, caches, logs, and browser leftovers to reclaim disk space
 - **Smart uninstaller**: Removes apps together with their leftover install folders
 - **Disk analyzer**: Explores disk usage with an interactive TUI and finds large files
-- **System maintenance**: Flushes DNS, rebuilds icon and font caches, and checks disk health
+- **System maintenance**: Flushes DNS, optimizes the system drive, and checks disk health
 - **Live monitoring**: Shows real-time CPU, memory, disk, network, and process stats
 
 ## Quick Start
@@ -202,18 +202,13 @@ Optimize and Maintain
 ➤ Disk Health
   ✓ harddisk SSD - Healthy
 
-➤ Icon Cache Rebuild
-  → Would stop Explorer
-  → Would delete icon cache files (iconcache_*.db)
-  → Would restart Explorer
-
 Dry Run Complete - No Changes Made
 
-  Would apply 3 optimizations
+  Would apply 1 optimization
   Run without --dry-run to apply changes
 ```
 
-Steps such as disk optimization, network settings, and the Windows Search index need administrator access and are skipped otherwise; run PowerShell as administrator to include them.
+Steps such as disk optimization and the ARP cache flush need administrator access and are skipped otherwise; run PowerShell as administrator to include them.
 
 ### Analyze
 
