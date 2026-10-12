@@ -54,9 +54,17 @@ gh release upload V1.31.0-windows C:\mole-release\* --repo tw93/Mole --clobber
 gh release edit V1.31.0-windows --repo tw93/Mole --draft=false --latest=false
 ```
 
+Right after publishing, add the six standard reactions as the maintainer, the same set every macOS release gets:
+
+```bash
+id=$(gh api repos/tw93/Mole/releases/tags/V1.31.0-windows --jq .id)
+for c in +1 laugh heart hooray rocket eyes; do gh api -X POST repos/tw93/Mole/releases/$id/reactions -f content="$c"; done
+```
+
 Then check:
 
 - `gh api repos/tw93/Mole/releases/latest --jq .tag_name` still prints the macOS tag.
+- `gh api repos/tw93/Mole/releases/$id/reactions` lists all six reactions from `tw93`.
 - A downloaded asset matches `SHA256SUMS.txt`, and `Get-AuthenticodeSignature` reports `Valid` for `mo.exe`.
 
 ## 5. Package managers
