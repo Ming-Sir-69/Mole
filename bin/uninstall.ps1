@@ -35,8 +35,12 @@ $libDir = Join-Path (Split-Path -Parent $scriptDir) "lib"
 # ============================================================================
 
 $script:CacheDir = "$env:USERPROFILE\.cache\mole"
-$script:AppCacheFile = "$script:CacheDir\app_scan_cache.json"
+# v2: entries carry their registry key, sizes are outlier-checked and duplicates merged.
+$script:AppCacheFile = "$script:CacheDir\app_scan_cache_v2.json"
 $script:CacheTTLHours = 24
+
+# A vendor EstimatedSize above this is measured against the install folder (#1717).
+$script:SizeOutlierKB = 10485760
 
 # ============================================================================
 # Help
@@ -93,6 +97,463 @@ function Test-ProtectedApp {
     return $false
 }
 
+# Store packages Windows itself stands on: the Store and its purchase flow, App
+# Installer (winget), Windows Security, and Get Help, which runs the troubleshooters.
+$script:ProtectedPackageNames = @(
+    "Microsoft.WindowsStore"
+    "Microsoft.StorePurchaseApp"
+    "Microsoft.DesktopAppInstaller"
+    "Microsoft.SecHealthUI"
+    "Microsoft.GetHelp"
+)
+
+# ============================================================================
+# Registry Entry Helpers
+# ============================================================================
+
+# Reads a property that may be absent; strict mode throws on a missing one.
+function Get-MoleProperty {
+    param($Object, [string]$Name)
+
+    if ($null -eq $Object) { return $null }
+    $property = $Object.PSObject.Properties[$Name]
+    if ($property) { return $property.Value }
+    return $null
+}
+
+# A full local folder path without quotes, trailing slashes or dot segments; $null otherwise.
+function Get-NormalizedFolderPath {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    $text = [Environment]::ExpandEnvironmentVariables($Path).Trim().Trim('"', "'").Trim()
+    $text = $text.Replace('/', '\').TrimEnd('\')
+    if ($text -notmatch '^[A-Za-z]:\\') { return $null }
+    foreach ($segment in $text.Split('\')) {
+        if ($segment -eq '' -or $segment -eq '.' -or $segment -eq '..') { return $null }
+    }
+    return $text
+}
+
+# Whether a registered InstallLocation can be one app's folder and so may be removed as
+# a leftover: never a drive root, Windows, the Users folder or a profile, a container
+# (Program Files, ProgramData, AppData and its roots) or a folder many apps share.
+function Test-MoleInstallFolder {
+    param([string]$Path)
+
+    # Folders that hold many apps or none, never one app's install folder.
+    $containerNames = @(
+        "Program Files", "Program Files (x86)", "ProgramData", "AppData", "Local", "LocalLow", "Roaming", "Programs"
+    )
+    $sharedFolderNames = @(
+        "Windows", "Package Cache", "Installer", "Common Files", "Temp", "WindowsApps",
+        "InstallShield Installation Information", "Uninstall Information", "Downloaded Installations"
+    )
+    $notAppFolderNames = @(
+        "Microsoft", "Microsoft Games", "Common", "Clients", "Downloads", "Desktop", "Documents", "Internet Explorer",
+        "Windows NT", "Windows Defender", "Windows Mail", "Windows Media Player", "Windows Photo Viewer",
+        "Reference Assemblies", "winsxs", "DirectX", "DirectXRedist"
+    )
+
+    $folder = Get-NormalizedFolderPath -Path $Path
+    if (-not $folder) { return $false }
+    $segments = $folder.Split('\')
+    if ($segments.Count -lt 2) { return $false }
+    if ($segments[1] -eq 'Windows') { return $false }
+    if ($segments[1] -eq 'Users' -and $segments.Count -le 3) { return $false }
+
+    $last = $segments[$segments.Count - 1]
+    if ($containerNames -contains $last -or
+        $sharedFolderNames -contains $last -or
+        $notAppFolderNames -contains $last) {
+        return $false
+    }
+
+    $roots = @(
+        $env:USERPROFILE, $env:PUBLIC, $env:APPDATA, $env:LOCALAPPDATA, $env:ProgramData,
+        $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432,
+        $env:CommonProgramFiles, ${env:CommonProgramFiles(x86)}
+    )
+    foreach ($root in $roots) {
+        $normalized = Get-NormalizedFolderPath -Path $root
+        if ($normalized -and $folder -eq $normalized) { return $false }
+    }
+    # The profile's own shell folders are the user's, whatever an entry registers.
+    $userProfile = Get-NormalizedFolderPath -Path $env:USERPROFILE
+    $profileFolders = @(
+        "Music", "Pictures", "Videos", "OneDrive", "Favorites", "Saved Games", "Contacts", "Links", "Searches", "3D Objects"
+    )
+    if ($userProfile -and $profileFolders -contains $last -and
+        (Split-Path -Parent $folder) -eq $userProfile) {
+        return $false
+    }
+    foreach ($root in @($env:SystemRoot, $env:windir)) {
+        $normalized = Get-NormalizedFolderPath -Path $root
+        if ($normalized -and ($folder -eq $normalized -or
+                $folder.StartsWith($normalized + '\', [StringComparison]::OrdinalIgnoreCase))) {
+            return $false
+        }
+    }
+
+    return (Test-Path -LiteralPath $folder -PathType Container)
+}
+
+function Test-UninstallEntryFlag {
+    param($Entry, [string]$Name)
+
+    $value = Get-MoleProperty $Entry $Name
+    if ($null -eq $value) { return $false }
+    $number = 0L
+    if ([long]::TryParse(([string]$value).Trim(), [ref]$number)) { return $number -ne 0 }
+    return $false
+}
+
+# ParentKeyName, an Update or Hotfix ReleaseType, or a "KB123456" default value mark an update.
+function Test-UninstallEntryIsUpdate {
+    param($Entry)
+
+    if (-not [string]::IsNullOrWhiteSpace([string](Get-MoleProperty $Entry 'ParentKeyName'))) { return $true }
+    if ([string](Get-MoleProperty $Entry 'ReleaseType') -match 'Update|Hotfix') { return $true }
+    return ([string](Get-MoleProperty $Entry '(default)') -match '^KB\d{6,}')
+}
+
+# EstimatedSize is KB; a DWORD above 2 GB reads back negative, and some vendors write a string.
+function Get-EstimatedSizeKB {
+    param($Entry)
+
+    $value = Get-MoleProperty $Entry 'EstimatedSize'
+    if ($null -eq $value) { return 0L }
+    $kb = 0L
+    if ($value -is [int]) {
+        $kb = [long]$value
+        if ($kb -lt 0) { $kb += 4294967296 }
+    }
+    elseif (-not [long]::TryParse(([string]$value).Trim(), [ref]$kb)) {
+        $kb = 0L
+    }
+    if ($kb -lt 0) { return 0L }
+    return $kb
+}
+
+# The size to show and whether it was verified. A vendor value can be wrong by 1000x
+# (#1717: RustDesk wrote bytes into the KB field), so one above 10 GB is measured against
+# the install folder and the measurement wins when it is at least 10x smaller.
+function Get-RegistryAppSize {
+    param([long]$EstimatedKB, [string]$InstallFolder)
+
+    if ($EstimatedKB -gt 0 -and $EstimatedKB -le $script:SizeOutlierKB) {
+        return [PSCustomObject]@{ SizeKB = $EstimatedKB; Checked = $true }
+    }
+    if (-not $InstallFolder) {
+        return [PSCustomObject]@{ SizeKB = $EstimatedKB; Checked = $false }
+    }
+    $measured = [long](Get-PathSizeKB -Path $InstallFolder)
+    if ($EstimatedKB -le 0) {
+        return [PSCustomObject]@{ SizeKB = $measured; Checked = ($measured -gt 0) }
+    }
+    if ($measured -le 0) {
+        return [PSCustomObject]@{ SizeKB = $EstimatedKB; Checked = $false }
+    }
+    if (($measured * 10) -le $EstimatedKB) {
+        return [PSCustomObject]@{ SizeKB = $measured; Checked = $true }
+    }
+    return [PSCustomObject]@{ SizeKB = $EstimatedKB; Checked = $true }
+}
+
+# One Uninstall registry entry as an app, or $null for entries Settings > Apps hides.
+function ConvertFrom-UninstallEntry {
+    param($Entry)
+
+    $displayName = [string](Get-MoleProperty $Entry 'DisplayName')
+    $uninstallString = ([string](Get-MoleProperty $Entry 'UninstallString')).Trim()
+    $quietString = ([string](Get-MoleProperty $Entry 'QuietUninstallString')).Trim()
+    if ([string]::IsNullOrWhiteSpace($displayName)) { return $null }
+    if (-not $uninstallString -and -not $quietString) { return $null }
+    if (Test-UninstallEntryFlag $Entry 'SystemComponent') { return $null }
+    if (Test-UninstallEntryIsUpdate $Entry) { return $null }
+    $displayName = $displayName.Trim()
+    if (Test-ProtectedApp $displayName) { return $null }
+
+    $installFolder = $null
+    $installLocation = [string](Get-MoleProperty $Entry 'InstallLocation')
+    if (Test-MoleInstallFolder -Path $installLocation) {
+        $installFolder = Get-NormalizedFolderPath -Path $installLocation
+    }
+    $size = Get-RegistryAppSize -EstimatedKB (Get-EstimatedSizeKB $Entry) -InstallFolder $installFolder
+
+    $installDate = $null
+    try {
+        $rawDate = [string](Get-MoleProperty $Entry 'InstallDate')
+        if ($rawDate) {
+            $installDate = [DateTime]::ParseExact($rawDate, "yyyyMMdd", $null)
+        }
+    }
+    catch { }
+
+    $publisher = [string](Get-MoleProperty $Entry 'Publisher')
+    $version = [string](Get-MoleProperty $Entry 'DisplayVersion')
+
+    return [PSCustomObject]@{
+        Name                 = $displayName
+        Publisher            = $(if ($publisher) { $publisher.Trim() } else { $null })
+        Version              = $(if ($version) { $version.Trim() } else { $null })
+        SizeKB               = $size.SizeKB
+        SizeHuman            = Format-ByteSize -Bytes ($size.SizeKB * 1024)
+        SizeChecked          = $size.Checked
+        InstallLocation      = $installFolder
+        UninstallString      = $(if ($uninstallString) { $uninstallString } else { $null })
+        QuietUninstallString = $(if ($quietString) { $quietString } else { $null })
+        WindowsInstaller     = (Test-UninstallEntryFlag $Entry 'WindowsInstaller')
+        RegistryKey          = [string](Get-MoleProperty $Entry 'PSPath')
+        KeyName              = [string](Get-MoleProperty $Entry 'PSChildName')
+        PackageFullName      = $null
+        InstallDate          = $installDate
+        Source               = "Registry"
+    }
+}
+
+# One product often registers twice (32- and 64-bit keys, an MSI plus a bootstrapper).
+# Entries naming the same install folder and name, the same uninstaller, or the same
+# name, version and publisher are one app; entries naming two different install folders
+# never merge, since each copy has its own uninstaller. The richer entry wins: one with
+# an install folder, then one whose size passed the outlier check.
+function Merge-InstalledApps {
+    param([array]$Apps)
+
+    $kept = New-Object System.Collections.ArrayList
+    $scores = New-Object System.Collections.ArrayList
+    foreach ($app in $Apps) {
+        if ($null -eq $app) { continue }
+        $folder = [string](Get-MoleProperty $app 'InstallLocation')
+        $uninstall = [string](Get-MoleProperty $app 'UninstallString')
+        $score = 0
+        if ($folder) { $score += 4 }
+        if ((Get-MoleProperty $app 'SizeChecked') -eq $true) { $score += 2 }
+
+        $match = -1
+        for ($i = 0; $i -lt $kept.Count; $i++) {
+            $other = $kept[$i]
+            $otherFolder = [string](Get-MoleProperty $other 'InstallLocation')
+            if ($folder -and $otherFolder -and $folder -ne $otherFolder) { continue }
+            $sameName = ($app.Name -eq $other.Name)
+            if (($folder -and $sameName -and $folder -eq $otherFolder) -or
+                ($uninstall -and $uninstall -eq [string](Get-MoleProperty $other 'UninstallString')) -or
+                ($sameName -and [string]$app.Version -eq [string]$other.Version -and
+                    [string]$app.Publisher -eq [string]$other.Publisher)) {
+                $match = $i
+                break
+            }
+        }
+
+        if ($match -lt 0) {
+            [void]$kept.Add($app)
+            [void]$scores.Add($score)
+        }
+        elseif ($score -gt $scores[$match]) {
+            $kept[$match] = $app
+            $scores[$match] = $score
+        }
+    }
+    return @($kept)
+}
+
+# Store packages a user installed: no frameworks, resource packs or bundles, nothing
+# signed as or living in Windows, no Microsoft.Windows.* and none Windows stands on.
+function Test-ListableAppxPackage {
+    param($Package)
+
+    $name = [string](Get-MoleProperty $Package 'Name')
+    if (-not $name) { return $false }
+    if ((Get-MoleProperty $Package 'IsFramework') -eq $true) { return $false }
+    if ((Get-MoleProperty $Package 'IsResourcePackage') -eq $true) { return $false }
+    if ((Get-MoleProperty $Package 'IsBundle') -eq $true) { return $false }
+    if ([string](Get-MoleProperty $Package 'SignatureKind') -eq 'System') { return $false }
+    if ($name.StartsWith('Microsoft.Windows.', [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    if ($script:ProtectedPackageNames -contains $name) { return $false }
+    if (Test-ProtectedApp $name) { return $false }
+
+    $location = Get-NormalizedFolderPath -Path ([string](Get-MoleProperty $Package 'InstallLocation'))
+    $windows = Get-NormalizedFolderPath -Path $env:SystemRoot
+    if ($location -and $windows -and ($location -eq $windows -or
+            $location.StartsWith($windows + '\', [StringComparison]::OrdinalIgnoreCase))) {
+        return $false
+    }
+    return $true
+}
+
+# Identifies an app in the menu: two different apps may share one display name.
+function Get-AppSelectionKey {
+    param($App)
+
+    $package = [string](Get-MoleProperty $App 'PackageFullName')
+    if ($package) { return "package:$package" }
+    $key = [string](Get-MoleProperty $App 'RegistryKey')
+    if ($key) { return "registry:$key" }
+    return "name:$($App.Name)"
+}
+
+# ============================================================================
+# Uninstaller Planning
+# ============================================================================
+
+# Splits a registered command into the program and its arguments. A quoted program is
+# taken as quoted; an unquoted path resolves to the longest prefix that is an existing
+# file, as CreateProcess does; a bare name is left for PATH. $null when the named
+# program does not exist.
+function Split-UninstallCommand {
+    param([string]$Command)
+
+    if ([string]::IsNullOrWhiteSpace($Command)) { return $null }
+    $text = [Environment]::ExpandEnvironmentVariables($Command).Trim()
+
+    if ($text.StartsWith('"')) {
+        $end = $text.IndexOf('"', 1)
+        if ($end -lt 0) { return $null }
+        $file = $text.Substring(1, $end - 1)
+        $rest = $text.Substring($end + 1).Trim()
+        if ($file -match '^[A-Za-z]:\\' -and -not (Test-Path -LiteralPath $file -PathType Leaf)) { return $null }
+        return [PSCustomObject]@{ FilePath = $file; Arguments = $rest }
+    }
+
+    if ($text -notmatch '^[A-Za-z]:\\') {
+        $space = $text.IndexOf(' ')
+        if ($space -lt 0) { return [PSCustomObject]@{ FilePath = $text; Arguments = "" } }
+        return [PSCustomObject]@{ FilePath = $text.Substring(0, $space); Arguments = $text.Substring($space + 1).Trim() }
+    }
+
+    if (Test-Path -LiteralPath $text -PathType Leaf) {
+        return [PSCustomObject]@{ FilePath = $text; Arguments = "" }
+    }
+    for ($i = $text.Length - 1; $i -gt 2; $i--) {
+        if ($text[$i] -ne ' ') { continue }
+        $candidate = $text.Substring(0, $i)
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [PSCustomObject]@{ FilePath = $candidate; Arguments = $text.Substring($i + 1).Trim() }
+        }
+    }
+    return $null
+}
+
+# The Windows Installer product code, when the entry is an MSI product.
+function Get-MsiProductCode {
+    param($App)
+
+    $guidPattern = '\{[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}'
+    $uninstall = [string](Get-MoleProperty $App 'UninstallString')
+    $keyName = [string](Get-MoleProperty $App 'KeyName')
+    $isMsi = ((Get-MoleProperty $App 'WindowsInstaller') -eq $true)
+    $code = $null
+    $match = [regex]::Match($keyName, $guidPattern)
+    if ($match.Success) {
+        $code = $match.Value.ToUpperInvariant()
+    }
+    elseif (-not $isMsi) {
+        $match = [regex]::Match($uninstall, $guidPattern)
+        if ($match.Success) { $code = $match.Value.ToUpperInvariant() }
+    }
+    if ($code -and $uninstall -match 'msiexec') { $isMsi = $true }
+    if ($isMsi -and $code) { return $code }
+    return $null
+}
+
+# Inno Setup: unins000.exe with its unins000.dat beside it.
+function Test-InnoUninstaller {
+    param([string]$File)
+
+    if ([System.IO.Path]::GetFileName($File) -notmatch '^unins\d{3}\.exe$') { return $false }
+    return (Test-Path -LiteralPath ($File.Substring(0, $File.Length - 4) + '.dat') -PathType Leaf)
+}
+
+# NSIS, told by the "Nullsoft" marker in the uninstaller's first MiB, never by its name:
+# other uninstall.exe programs may read /S as something else.
+function Test-NsisUninstaller {
+    param([string]$File)
+
+    if ($File -notmatch '\.exe$' -or -not (Test-Path -LiteralPath $File -PathType Leaf)) { return $false }
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($File)
+        $buffer = New-Object byte[] 1048576
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+        return ([System.Text.Encoding]::ASCII.GetString($buffer, 0, $read).Contains('Nullsoft'))
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($stream) { $stream.Dispose() }
+    }
+}
+
+# The Steam client's NSIS uninstaller keeps its window, where Valve warns that the
+# games in its library go too.
+function Test-SteamClientUninstaller {
+    param($App, [string]$File)
+
+    if ($App.Name -ne 'Steam') { return $false }
+    $folder = Split-Path -Parent $File
+    return ($folder -and (Test-Path -LiteralPath (Join-Path $folder 'steam.exe') -PathType Leaf))
+}
+
+# What to start to remove an app, run once: msiexec for MSI products, the vendor's quiet
+# command when registered, Inno or NSIS silent switches only when the uninstaller is
+# recognised as one, otherwise the registered command as is. $null when nothing runnable.
+function Get-UninstallLaunch {
+    param($App)
+
+    $productCode = Get-MsiProductCode -App $App
+    if ($productCode) {
+        return [PSCustomObject]@{
+            FilePath  = (Join-Path $env:SystemRoot 'System32\msiexec.exe')
+            Arguments = "/x $productCode /passive REBOOT=ReallySuppress /norestart"
+            Kind      = 'msi'
+        }
+    }
+
+    $quiet = Split-UninstallCommand -Command ([string](Get-MoleProperty $App 'QuietUninstallString'))
+    if ($quiet) {
+        return [PSCustomObject]@{ FilePath = $quiet.FilePath; Arguments = $quiet.Arguments; Kind = 'quiet' }
+    }
+
+    $command = Split-UninstallCommand -Command ([string](Get-MoleProperty $App 'UninstallString'))
+    if (-not $command) { return $null }
+    $arguments = $command.Arguments
+    $kind = 'registered'
+    if (Test-InnoUninstaller -File $command.FilePath) {
+        if ($arguments -notmatch 'SILENT') {
+            $arguments = ("$arguments /SILENT /SUPPRESSMSGBOXES /NORESTART").Trim()
+        }
+        $kind = 'inno'
+    }
+    elseif ($arguments -notmatch '(^|\s)[/-](quiet|passive|silent|q|s)(\s|$)' -and
+        (Test-NsisUninstaller -File $command.FilePath) -and
+        -not (Test-SteamClientUninstaller -App $App -File $command.FilePath)) {
+        $arguments = ("$arguments /S").Trim()
+        $kind = 'nsis'
+    }
+    return [PSCustomObject]@{ FilePath = $command.FilePath; Arguments = $arguments; Kind = $kind }
+}
+
+# An uninstall is done once its registry entry is gone or no longer names an app (a name
+# plus an uninstall command). A key that cannot be read counts as still installed.
+function Test-UninstallEntryGone {
+    param([string]$KeyPath)
+
+    if ([string]::IsNullOrWhiteSpace($KeyPath)) { return $false }
+    try {
+        $values = Get-ItemProperty -LiteralPath $KeyPath -ErrorAction Stop
+    }
+    catch [System.Management.Automation.ItemNotFoundException] {
+        return $true
+    }
+    catch {
+        return $false
+    }
+    if ([string]::IsNullOrWhiteSpace([string](Get-MoleProperty $values 'DisplayName'))) { return $true }
+    return ([string]::IsNullOrWhiteSpace([string](Get-MoleProperty $values 'UninstallString')) -and
+        [string]::IsNullOrWhiteSpace([string](Get-MoleProperty $values 'QuietUninstallString')))
+}
+
 # ============================================================================
 # Application Discovery
 # ============================================================================
@@ -130,6 +591,7 @@ function Get-InstalledApplications {
         "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
         "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
         "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+        "HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
     )
 
     $count = 0
@@ -140,82 +602,34 @@ function Get-InstalledApplications {
         Write-Progress -Activity "Scanning applications" -Status "Registry path $count of $total" -PercentComplete (($count / $total) * 50)
 
         try {
-            $regItems = Get-ItemProperty -Path $path -ErrorAction SilentlyContinue
-
-            foreach ($item in $regItems) {
-                # Skip items without required properties
-                $displayName = $null
-                $uninstallString = $null
-
-                try { $displayName = $item.DisplayName } catch { }
-                try { $uninstallString = $item.UninstallString } catch { }
-
-                if ([string]::IsNullOrWhiteSpace($displayName) -or [string]::IsNullOrWhiteSpace($uninstallString)) {
-                    continue
-                }
-
-                if (Test-ProtectedApp $displayName) {
-                    continue
-                }
-
-                # Calculate size
-                $sizeKB = 0
-                try {
-                    if ($item.EstimatedSize) {
-                        $sizeKB = [long]$item.EstimatedSize
-                    }
-                    elseif ($item.InstallLocation -and (Test-Path $item.InstallLocation -ErrorAction SilentlyContinue)) {
-                        $sizeKB = Get-PathSizeKB -Path $item.InstallLocation
-                    }
-                }
-                catch { }
-
-                # Get install date
-                $installDate = $null
-                try {
-                    if ($item.InstallDate) {
-                        $installDate = [DateTime]::ParseExact($item.InstallDate, "yyyyMMdd", $null)
-                    }
-                }
-                catch { }
-
-                # Get other properties safely
-                $publisher = $null
-                $version = $null
-                $installLocation = $null
-
-                try { $publisher = $item.Publisher } catch { }
-                try { $version = $item.DisplayVersion } catch { }
-                try { $installLocation = $item.InstallLocation } catch { }
-
-                $apps += [PSCustomObject]@{
-                    Name = $displayName
-                    Publisher = $publisher
-                    Version = $version
-                    SizeKB = $sizeKB
-                    SizeHuman = Format-ByteSize -Bytes ($sizeKB * 1024)
-                    InstallLocation = $installLocation
-                    UninstallString = $uninstallString
-                    InstallDate = $installDate
-                    Source = "Registry"
-                }
-            }
+            $regItems = @(Get-ItemProperty -Path $path -ErrorAction SilentlyContinue)
         }
         catch {
             Write-Debug "Error scanning registry path $path : $_"
+            continue
+        }
+
+        foreach ($item in $regItems) {
+            try {
+                $app = ConvertFrom-UninstallEntry -Entry $item
+                if ($app) {
+                    $apps += $app
+                }
+            }
+            catch {
+                Write-Debug "Skipping unreadable uninstall entry: $_"
+            }
         }
     }
+
+    $apps = @(Merge-InstalledApps -Apps $apps)
 
     # UWP / Store Apps
     Write-Progress -Activity "Scanning applications" -Status "Scanning Windows Apps" -PercentComplete 75
 
     try {
-        $uwpApps = Get-AppxPackage -ErrorAction SilentlyContinue |
-                   Where-Object {
-                       $_.IsFramework -eq $false -and
-                       $_.SignatureKind -ne 'System' -and
-                       -not (Test-ProtectedApp $_.Name)
-                   }
+        $uwpApps = @(Get-AppxPackage -ErrorAction SilentlyContinue |
+                   Where-Object { Test-ListableAppxPackage -Package $_ })
 
         foreach ($uwp in $uwpApps) {
             # Get friendly name
@@ -241,8 +655,13 @@ function Get-InstalledApplications {
                 Version = $uwp.Version
                 SizeKB = $sizeKB
                 SizeHuman = Format-ByteSize -Bytes ($sizeKB * 1024)
+                SizeChecked = ($sizeKB -gt 0)
                 InstallLocation = $uwp.InstallLocation
                 UninstallString = $null
+                QuietUninstallString = $null
+                WindowsInstaller = $false
+                RegistryKey = $null
+                KeyName = $null
                 PackageFullName = $uwp.PackageFullName
                 InstallDate = $null
                 Source = "WindowsStore"
@@ -270,6 +689,10 @@ function Get-InstalledApplications {
 # ============================================================================
 # Application Selection UI
 # ============================================================================
+
+function Read-MenuKey {
+    return [Console]::ReadKey($true)
+}
 
 function Show-AppSelectionMenu {
     <#
@@ -316,7 +739,7 @@ function Show-AppSelectionMenu {
 
             for ($i = $pageStart; $i -lt $pageEnd; $i++) {
                 $app = $filteredApps[$i]
-                $isSelected = $selectedIndices.ContainsKey($app.Name)
+                $isSelected = $selectedIndices.ContainsKey((Get-AppSelectionKey $app))
                 $isCurrent = ($i -eq $currentIndex)
 
                 # Selection indicator
@@ -353,9 +776,8 @@ function Show-AppSelectionMenu {
             $selectedCount = $selectedIndices.Count
             if ($selectedCount -gt 0) {
                 $totalSize = 0
-                foreach ($key in $selectedIndices.Keys) {
-                    $app = $Apps | Where-Object { $_.Name -eq $key }
-                    if ($app.SizeKB) {
+                foreach ($app in $Apps) {
+                    if ($selectedIndices.ContainsKey((Get-AppSelectionKey $app)) -and $app.SizeKB) {
                         $totalSize += $app.SizeKB
                     }
                 }
@@ -369,7 +791,7 @@ function Show-AppSelectionMenu {
             Write-Host "$esc[90mPage $currentPage of $totalPages$esc[0m"
 
             # Handle input
-            $key = [Console]::ReadKey($true)
+            $key = Read-MenuKey
 
             switch ($key.Key) {
                 'UpArrow' {
@@ -398,18 +820,18 @@ function Show-AppSelectionMenu {
                     $currentIndex = $pageStart
                 }
                 'Spacebar' {
-                    $app = $filteredApps[$currentIndex]
-                    if ($selectedIndices.ContainsKey($app.Name)) {
-                        $selectedIndices.Remove($app.Name)
+                    $selectionKey = Get-AppSelectionKey $filteredApps[$currentIndex]
+                    if ($selectedIndices.ContainsKey($selectionKey)) {
+                        $selectedIndices.Remove($selectionKey)
                     }
                     else {
-                        $selectedIndices[$app.Name] = $true
+                        $selectedIndices[$selectionKey] = $true
                     }
                 }
                 'Enter' {
                     if ($selectedIndices.Count -gt 0) {
                         # Return selected apps
-                        $selected = $Apps | Where-Object { $selectedIndices.ContainsKey($_.Name) }
+                        $selected = $Apps | Where-Object { $selectedIndices.ContainsKey((Get-AppSelectionKey $_)) }
                         return $selected
                     }
                 }
@@ -463,13 +885,17 @@ function Get-UninstallMethodDescription {
     if ($App.Source -eq "WindowsStore") {
         return "Remove-AppxPackage $($App.PackageFullName)"
     }
-    $uninstallString = $App.UninstallString
-    if ($uninstallString -like "MsiExec.exe*") {
-        $productCode = [regex]::Match($uninstallString, '\{[0-9A-F-]+\}').Value
+    $productCode = Get-MsiProductCode -App $App
+    if ($productCode) {
         return "msiexec /x $productCode"
     }
+    $launch = Get-UninstallLaunch -App $App
+    if ($launch) {
+        return "its uninstaller: $(("$($launch.FilePath) $($launch.Arguments)").Trim())"
+    }
+    $uninstallString = [string](Get-MoleProperty $App 'UninstallString')
     if ($uninstallString) {
-        return "its uninstaller: $uninstallString"
+        return "no runnable uninstaller, registered: $uninstallString"
     }
     return "no uninstall command registered"
 }
@@ -483,8 +909,9 @@ function Uninstall-SelectedApps {
 
     $esc = [char]27
 
-    # A dry run runs no uninstaller and removes nothing; leftover folders go
-    # through Remove-SafeItem, which only reports them in dry-run mode.
+    # A dry run runs no uninstaller and removes nothing. It names the install folder
+    # only when that folder could be removed after a real uninstall; Remove-SafeItem
+    # only reports it in dry-run mode.
     if ($script:MoleDryRunMode) {
         Write-Host ""
         Write-Host "$esc[1;35mUninstall preview$esc[0m - no changes made"
@@ -492,8 +919,9 @@ function Uninstall-SelectedApps {
         foreach ($app in $Apps) {
             Write-Host "$esc[34m$($script:Icons.Arrow)$esc[0m $($app.Name)"
             Write-Host "  $esc[90mWould uninstall with $(Get-UninstallMethodDescription -App $app)$esc[0m"
-            if ($app.InstallLocation -and (Test-Path $app.InstallLocation)) {
-                $null = Remove-SafeItem -Path $app.InstallLocation -Description "Leftover files" -Recurse
+            $folder = [string](Get-MoleProperty $app 'InstallLocation')
+            if ($app.Source -ne "WindowsStore" -and (Test-MoleInstallFolder -Path $folder)) {
+                $null = Remove-SafeItem -Path $folder -Description "Leftover files" -Recurse
             }
         }
         Write-Host ""
@@ -509,6 +937,7 @@ function Uninstall-SelectedApps {
 
     $successCount = 0
     $failCount = 0
+    $remainingCount = 0
 
     foreach ($app in $Apps) {
         Write-Host "$esc[34m$($script:Icons.Arrow)$esc[0m Uninstalling: $($app.Name)" -NoNewline
@@ -521,67 +950,40 @@ function Uninstall-SelectedApps {
                     Write-Host " $esc[32m$($script:Icons.Success)$esc[0m"
                     $successCount++
                 }
+                continue
             }
-            else {
-                # Registry app with uninstall string
-                $uninstallString = $app.UninstallString
 
-                # Handle different uninstall types
-                if ($uninstallString -like "MsiExec.exe*") {
-                    # MSI uninstall
-                    $productCode = [regex]::Match($uninstallString, '\{[0-9A-F-]+\}').Value
-                    if ($productCode) {
-                        $process = Start-Process -FilePath "msiexec.exe" `
-                            -ArgumentList "/x", $productCode, "/qn", "/norestart" `
-                            -Wait -PassThru -NoNewWindow
-
-                        if ($process.ExitCode -eq 0 -or $process.ExitCode -eq 3010) {
-                            Write-Host " $esc[32m$($script:Icons.Success)$esc[0m"
-                            $successCount++
-                        }
-                        else {
-                            Write-Host " $esc[33m(requires interaction)$esc[0m"
-                            # Fallback to interactive uninstall
-                            Start-Process -FilePath "msiexec.exe" -ArgumentList "/x", $productCode -Wait
-                            $successCount++
-                        }
-                    }
-                }
-                else {
-                    # Direct executable uninstall
-                    # Try silent uninstall first
-                    $silentArgs = @("/S", "/silent", "/quiet", "-s", "-silent", "-quiet", "/VERYSILENT")
-                    $uninstalled = $false
-
-                    foreach ($arg in $silentArgs) {
-                        try {
-                            $process = Start-Process -FilePath "cmd.exe" `
-                                -ArgumentList "/c", "`"$uninstallString`"", $arg `
-                                -Wait -PassThru -NoNewWindow -ErrorAction SilentlyContinue
-
-                            if ($process.ExitCode -eq 0) {
-                                Write-Host " $esc[32m$($script:Icons.Success)$esc[0m"
-                                $successCount++
-                                $uninstalled = $true
-                                break
-                            }
-                        }
-                        catch { }
-                    }
-
-                    if (-not $uninstalled) {
-                        # Fallback to interactive - don't count as automatic success
-                        Write-Host " $esc[33m(launching uninstaller - verify completion manually)$esc[0m"
-                        Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$uninstallString`"" -Wait
-                        # Note: Not incrementing $successCount since we can't verify if user completed or cancelled
-                    }
-                }
+            # Registry app: run its uninstaller once, then trust only the registry.
+            $launch = Get-UninstallLaunch -App $app
+            if (-not $launch) {
+                Write-Host " $esc[31m(no runnable uninstaller found)$esc[0m"
+                $failCount++
+                continue
             }
+
+            $startArgs = @{ FilePath = $launch.FilePath; Wait = $true; PassThru = $true }
+            if ($launch.Arguments) {
+                $startArgs.ArgumentList = $launch.Arguments
+            }
+            $process = Start-Process @startArgs
+            $exitCode = Get-MoleProperty $process 'ExitCode'
+
+            # A cancelled, failed or still-running uninstall leaves its entry behind, and
+            # then the install folder is still the app's: nothing is removed.
+            if (-not (Test-UninstallEntryGone -KeyPath ([string](Get-MoleProperty $app 'RegistryKey')))) {
+                Write-Host " $esc[33m(still installed, exit code $exitCode)$esc[0m"
+                $remainingCount++
+                continue
+            }
+
+            Write-Host " $esc[32m$($script:Icons.Success)$esc[0m"
+            $successCount++
 
             # Clean leftover files
-            if ($app.InstallLocation -and (Test-Path $app.InstallLocation)) {
+            $folder = [string](Get-MoleProperty $app 'InstallLocation')
+            if (Test-MoleInstallFolder -Path $folder) {
                 Write-Host "  $esc[90mCleaning leftover files...$esc[0m"
-                $null = Remove-SafeItem -Path $app.InstallLocation -Description "Leftover files" -Recurse
+                $null = Remove-SafeItem -Path $folder -Description "Leftover files" -Recurse
             }
         }
         catch {
@@ -595,6 +997,9 @@ function Uninstall-SelectedApps {
     Write-Host ""
     Write-Host "$esc[1;35mUninstall Complete$esc[0m"
     Write-Host "  Successfully uninstalled: $esc[32m$successCount$esc[0m"
+    if ($remainingCount -gt 0) {
+        Write-Host "  Still installed: $esc[33m$remainingCount$esc[0m"
+    }
     if ($failCount -gt 0) {
         Write-Host "  Failed: $esc[31m$failCount$esc[0m"
     }

@@ -23,7 +23,11 @@ BeforeAll {
         }
     }
 
-    Import-ScriptFunction -Script (Join-Path $script:WindowsDir "bin\uninstall.ps1") -Names @("Get-UninstallMethodDescription", "Uninstall-SelectedApps")
+    Import-ScriptFunction -Script (Join-Path $script:WindowsDir "bin\uninstall.ps1") -Names @(
+        "Get-UninstallMethodDescription", "Uninstall-SelectedApps", "Get-MoleProperty", "Get-NormalizedFolderPath",
+        "Test-MoleInstallFolder", "Get-MsiProductCode", "Split-UninstallCommand", "Test-InnoUninstaller",
+        "Test-NsisUninstaller", "Test-SteamClientUninstaller", "Get-UninstallLaunch"
+    )
     Import-ScriptFunction -Script (Join-Path $script:WindowsDir "bin\purge.ps1") -Names @("Remove-ProjectArtifacts")
     $script:AppCacheFile = Join-Path $TestDrive "no-cache.json"
 }
