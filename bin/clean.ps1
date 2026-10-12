@@ -43,6 +43,9 @@ $libDir = Join-Path (Split-Path -Parent $scriptDir) "lib"
 . "$libDir\clean\apps.ps1"
 . "$libDir\clean\system.ps1"
 
+# Clean refuses key, browser profile and transcript stores (lib/core/base.ps1).
+$script:MoleCleanPathGuard = $true
+
 # ============================================================================
 # Configuration
 # ============================================================================

@@ -200,6 +200,53 @@ $script:ExactProtectedPaths = @(
     "$env:USERPROFILE" # Protect the user profile root without blocking targeted cache cleanup below it.
 )
 
+# Path segments no Mole command may delete under, wherever they appear: DPAPI
+# master keys, the credential vault, certificates and the Start Menu, several of
+# which sit right beside real caches under AppData. Matched case-insensitively
+# as whole path segments, so "Cryptography" or "MyVault" is not a match.
+$script:ProtectedPathSegments = @(
+    "Microsoft\Credentials"
+    "Microsoft\Protect"
+    "Microsoft\Crypto"
+    "Microsoft\Vault"
+    "Microsoft\SystemCertificates"
+    "Microsoft\Windows\Start Menu"
+)
+
+# Clean only, enabled by bin/clean.ps1 through $script:MoleCleanPathGuard: SSH,
+# GPG and cloud CLI keys and cached tokens, browser and Electron profile stores
+# (sign-ins, site data, open tabs), VS Code's local file history and AI assistant
+# transcripts. Purge and uninstall do not use this list, because a project's
+# node_modules can hold a package folder named "cookies".
+$script:CleanProtectedPathSegments = @(
+    ".ssh"
+    ".gnupg"
+    ".aws"
+    ".azure"
+    ".kube"
+    ".docker"
+    "Login Data"
+    "Cookies"
+    "Web Data"
+    "Local Storage"
+    "Session Storage"
+    "IndexedDB"
+    "Sessions"
+    "Local Extension Settings"
+    "Sync Data"
+    "User\History"
+    ".claude\projects"
+    ".claude\file-history"
+    ".claude\history.jsonl"
+    ".codex\sessions"
+    ".codex\archived_sessions"
+    ".codex\history.jsonl"
+)
+
+if (-not (Get-Variable -Name 'MoleCleanPathGuard' -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:MoleCleanPathGuard = $false
+}
+
 # ============================================================================
 # System Utilities
 # ============================================================================
@@ -288,6 +335,29 @@ function Get-OptimalParallelJobs {
 # Path Utilities
 # ============================================================================
 
+function Test-PathHasSegment {
+    <#
+    .SYNOPSIS
+        Whether a full path contains one of the segment sequences as whole segments
+    #>
+    param(
+        [string]$NormalizedPath,
+        [string[]]$Segments
+    )
+
+    foreach ($segment in $Segments) {
+        if ([string]::IsNullOrWhiteSpace($segment)) {
+            continue
+        }
+        $needle = "\" + $segment
+        if ($NormalizedPath.IndexOf("$needle\", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+            $NormalizedPath.EndsWith($needle, [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Test-ProtectedPath {
     <#
     .SYNOPSIS
@@ -303,6 +373,15 @@ function Test-ProtectedPath {
         $normalizedPath = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
     }
     catch {
+        return $true
+    }
+
+    if (Test-PathHasSegment -NormalizedPath $normalizedPath -Segments $script:ProtectedPathSegments) {
+        return $true
+    }
+
+    if ($script:MoleCleanPathGuard -and
+        (Test-PathHasSegment -NormalizedPath $normalizedPath -Segments $script:CleanProtectedPathSegments)) {
         return $true
     }
 

@@ -1,4 +1,4 @@
-# Mole Windows - user data clean must not touch
+# Mole Windows - protected path segments and user data clean must not touch
 
 BeforeAll {
     $script:WindowsDir = Split-Path -Parent $PSScriptRoot
@@ -22,6 +22,99 @@ BeforeAll {
 AfterAll {
     $env:MOLE_DRY_RUN = $null
     Set-DryRunMode -Enabled $false
+    $script:MoleCleanPathGuard = $false
+}
+
+Describe "Protected path segments" {
+    BeforeAll {
+        $script:P = Join-Path $TestDrive "Users\tester"
+        $script:Roaming = Join-Path $script:P "AppData\Roaming"
+        $script:Local = Join-Path $script:P "AppData\Local"
+        $script:Chrome = Join-Path $script:Local "Google\Chrome\User Data\Default"
+    }
+
+    AfterEach {
+        $script:MoleCleanPathGuard = $false
+    }
+
+    It "Refuses Windows secret stores and the Start Menu for every command" {
+        $script:MoleCleanPathGuard = $false
+        $refused = @(
+            "$script:Roaming\Microsoft\Credentials\ABCDEF"
+            "$script:Local\Microsoft\Credentials"
+            "$script:Roaming\Microsoft\Protect\S-1-5-21-1\key"
+            "$script:Roaming\Microsoft\Crypto\RSA\S-1-5-21-1\k"
+            "$script:Local\Microsoft\Vault\4BF4C442"
+            "$script:Roaming\Microsoft\SystemCertificates\My\Certificates\c"
+            "$script:Roaming\Microsoft\Windows\Start Menu\Programs\App.lnk"
+            "$script:Roaming\microsoft\credentials\lower-case"
+        )
+        foreach ($path in $refused) {
+            Test-SafePath -Path $path | Should -BeFalse -Because $path
+        }
+    }
+
+    It "Refuses key, browser profile and transcript stores during clean" {
+        $script:MoleCleanPathGuard = $true
+        $refused = @(
+            "$script:P\.ssh\id_ed25519"
+            "$script:P\.SSH"
+            "$script:P\.gnupg\private-keys-v1.d\k.key"
+            "$script:P\.aws\cli\cache\token.json"
+            "$script:P\.azure\logs\az.log"
+            "$script:P\.kube\cache\discovery\x.json"
+            "$script:P\.docker\config.json"
+            "$script:Chrome\Login Data"
+            "$script:Chrome\Network\Cookies"
+            "$script:Chrome\Web Data"
+            "$script:Chrome\Local Storage\leveldb\000003.log"
+            "$script:Chrome\local storage"
+            "$script:Chrome\Session Storage\x"
+            "$script:Chrome\IndexedDB\https_example.com_0.indexeddb.leveldb\1.log"
+            "$script:Chrome\Sessions\Session_1"
+            "$script:Chrome\Local Extension Settings\abc\000001.log"
+            "$script:Chrome\Sync Data\LevelDB\x"
+            "$script:Roaming\Code\User\History\-1a2b\entries.json"
+            "$script:P\.claude\projects\proj\session.jsonl"
+            "$script:P\.claude\file-history\x"
+            "$script:P\.claude\history.jsonl"
+            "$script:P\.codex\sessions\2026\10\rollout.jsonl"
+            "$script:P\.codex\archived_sessions\rollout.jsonl"
+            "$script:P\.codex\history.jsonl"
+        )
+        foreach ($path in $refused) {
+            Test-SafePath -Path $path | Should -BeFalse -Because $path
+        }
+    }
+
+    It "Matches whole segments, not names that only start the same" {
+        $script:MoleCleanPathGuard = $true
+        $allowed = @(
+            "$script:P\.awsome\cache\x"
+            "$script:P\.sshd-cache\x"
+            "$script:P\.claude\statsig\x"
+            "$script:P\.codex\cache\x"
+            "$script:Chrome\Cache\Cache_Data\f_000001"
+            "$script:Chrome\CookiesBackup\x"
+            "$script:Roaming\Microsoft\Cryptography\x"
+            "$script:Roaming\Microsoft\VaultCache\x"
+            "$script:Roaming\Code\CachedData\User\x"
+        )
+        foreach ($path in $allowed) {
+            Test-SafePath -Path $path | Should -BeTrue -Because $path
+        }
+    }
+
+    It "Leaves the clean-only segments to clean, so purge can remove node_modules\cookies" {
+        $script:MoleCleanPathGuard = $false
+        Test-SafePath -Path (Join-Path $TestDrive "project\node_modules\cookies\index.js") | Should -BeTrue
+    }
+
+    It "Turns the clean-only guard on in mo clean" {
+        $source = Get-Content -Path (Join-Path $script:WindowsDir "bin\clean.ps1")
+        $code = @($source | Where-Object { $_ -notmatch '^\s*#' })
+        @($code | Where-Object { $_ -match '^\s*\$script:MoleCleanPathGuard\s*=\s*\$true\s*$' }).Count | Should -Be 1
+    }
 }
 
 Describe "Clean leaves user data alone" {
@@ -107,6 +200,8 @@ Describe "Clean leaves user data alone" {
         New-Item -ItemType Directory -Path "$env:LOCALAPPDATA\Dropbox" -Force | Out-Null
         @{ personal = @{ path = $dropbox } } | ConvertTo-Json | Set-Content -Path "$env:LOCALAPPDATA\Dropbox\info.json"
 
+        # The segment guard is off here, so these assertions are about the rows themselves.
+        $script:MoleCleanPathGuard = $false
         $script:ExportListFile = Join-Path $root "clean-list.txt"
         Reset-CleanupStats
 
