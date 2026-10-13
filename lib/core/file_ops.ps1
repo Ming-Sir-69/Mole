@@ -26,6 +26,81 @@ $script:TotalItems = 0
 # Safety Validation Functions
 # ============================================================================
 
+# Bind each existing path component to its Windows volume/file identity. Path
+# spelling alone cannot distinguish a directory replaced after preview/sizing.
+function Get-MolePathSnapshot {
+    param([string]$Path, [switch]$AllowLeafLink)
+
+    try {
+        if (-not ('Mole.SafePathIdentity' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+namespace Mole {
+    public sealed class SafePathIdentity {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Info {
+            public uint Attributes, CreationLow, CreationHigh, AccessLow, AccessHigh;
+            public uint WriteLow, WriteHigh, Volume, SizeHigh, SizeLow, Links, IndexHigh, IndexLow;
+        }
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+        private static extern SafeFileHandle CreateFile(string path, uint access, uint share,
+            IntPtr security, uint disposition, uint flags, IntPtr template);
+        [DllImport("kernel32.dll", SetLastError=true)]
+        private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out Info info);
+        public string Identity;
+        public bool Link;
+        public static SafePathIdentity Read(string path) {
+            using (SafeFileHandle handle = CreateFile(path, 0x80, 7, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero)) {
+                if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+                Info info;
+                if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                return new SafePathIdentity { Identity = info.Volume + ":" + info.IndexHigh + ":" + info.IndexLow,
+                    Link = (info.Attributes & 0x400) != 0 };
+            }
+        }
+    }
+}
+'@ -ErrorAction Stop
+        }
+        $fullPath = [IO.Path]::GetFullPath($Path)
+        # Device/provider paths and network roots are not automatic cleanup roots.
+        if ($fullPath -notmatch '^[A-Za-z]:\\') { return $null }
+        $entries = @{}
+        $current = $fullPath.TrimEnd('\')
+        if ($current -match '^[A-Za-z]:$') { $current += '\' }
+        $leaf = $true
+        while ($current) {
+            $info = [Mole.SafePathIdentity]::Read($current)
+            if ($info.Link -and (-not $leaf -or -not $AllowLeafLink)) { return $null }
+            $entries[$current] = $info.Identity
+            $parent = [IO.Path]::GetDirectoryName($current)
+            if ($parent -eq $current) { break }
+            $current = $parent
+            $leaf = $false
+        }
+        return @{ Path = $fullPath; Entries = $entries; AllowLeafLink = [bool]$AllowLeafLink }
+    }
+    catch {
+        Write-Debug "Could not bind cleanup path: $Path - $_"
+        return $null
+    }
+}
+
+function Test-MolePathSnapshot {
+    param($Snapshot)
+
+    if ($null -eq $Snapshot) { return $false }
+    $now = Get-MolePathSnapshot -Path $Snapshot.Path -AllowLeafLink:$Snapshot.AllowLeafLink
+    if ($null -eq $now -or $now.Entries.Count -ne $Snapshot.Entries.Count) { return $false }
+    foreach ($path in $Snapshot.Entries.Keys) {
+        if ($now.Entries[$path] -ne $Snapshot.Entries[$path]) { return $false }
+    }
+    return $true
+}
+
 function Test-SafePath {
     <#
     .SYNOPSIS
@@ -90,13 +165,24 @@ function Get-TreeItemsNoFollow {
     )
 
     $errorAction = if ($SkipUnreadable) { "SilentlyContinue" } else { "Stop" }
+    $walkTimer = [Diagnostics.Stopwatch]::StartNew()
     $pending = New-Object System.Collections.Generic.Stack[string]
+    $rootSnapshot = Get-MolePathSnapshot -Path $Path
+    if (-not $rootSnapshot) { throw "Unverified directory: $Path" }
     $pending.Push($Path)
+    $snapshots = @{ $Path = $rootSnapshot }
     while ($pending.Count -gt 0) {
+        if ($walkTimer.Elapsed.TotalSeconds -ge 15) { throw 'Cleanup walk timed out' }
         $directory = $pending.Pop()
+        if (-not (Test-MolePathSnapshot $snapshots[$directory])) { throw "Directory changed: $directory" }
         foreach ($item in @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction $errorAction)) {
+            if ($walkTimer.Elapsed.TotalSeconds -ge 15) { throw 'Cleanup walk timed out' }
+            $snapshot = Get-MolePathSnapshot -Path $item.FullName -AllowLeafLink
+            if (-not $snapshot) { throw "Unverified child: $($item.FullName)" }
+            $item | Add-Member -NotePropertyName MolePathSnapshot -NotePropertyValue $snapshot -Force
             $item
             if ($item.PSIsContainer -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                $snapshots[$item.FullName] = $snapshot
                 $pending.Push($item.FullName)
             }
         }
@@ -126,12 +212,12 @@ function Get-PathSize {
         [string]$Path
     )
     
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         return 0
     }
     
     try {
-        if (Test-Path $Path -PathType Container) {
+        if (Test-Path -LiteralPath $Path -PathType Container) {
             # A linked directory's files are not Mole's to count.
             if (Test-IsReparsePoint -Path $Path) {
                 return 0
@@ -143,7 +229,7 @@ function Get-PathSize {
             return [long]$size
         }
         else {
-            return (Get-Item $Path -Force -ErrorAction SilentlyContinue).Length
+            return (Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue).Length
         }
     }
     catch {
@@ -176,11 +262,14 @@ function Get-SafeDirectoryTreeItems {
         [string]$Path
     )
 
+    $rootSnapshot = Get-MolePathSnapshot -Path $Path -AllowLeafLink
+    if (-not $rootSnapshot) { return @{ Success = $false; Items = @() } }
     # A linked directory is removed as a link; nothing under it is listed.
     if (Test-IsReparsePoint -Path $Path) {
         return @{
             Success = $true
             Items   = @()
+            RootSnapshot = $rootSnapshot
         }
     }
 
@@ -208,6 +297,7 @@ function Get-SafeDirectoryTreeItems {
     return @{
         Success = $true
         Items   = $items
+        RootSnapshot = $rootSnapshot
     }
 }
 
@@ -230,7 +320,8 @@ function Remove-SafeDirectoryTree {
         Get-SafeDirectoryTreeItems -Path $Path
     }
 
-    if (-not $tree.Success) {
+    if (-not $tree.Success -or -not (Test-SafePath $Path) -or
+        -not (Test-MolePathSnapshot $tree.RootSnapshot)) {
         return $false
     }
 
@@ -241,6 +332,8 @@ function Remove-SafeDirectoryTree {
 
     foreach ($item in $orderedItems) {
         try {
+            if (-not (Test-SafePath $item.FullName) -or
+                -not (Test-MolePathSnapshot $item.MolePathSnapshot)) { return $false }
             Remove-TreeEntry -Path $item.FullName
             Write-Debug "Removed child item: $($item.FullName)"
         }
@@ -251,6 +344,7 @@ function Remove-SafeDirectoryTree {
     }
 
     try {
+        if (-not (Test-SafePath $Path) -or -not (Test-MolePathSnapshot $tree.RootSnapshot)) { return $false }
         Remove-TreeEntry -Path $Path
         Write-Debug "Removed directory root: $Path"
         return $true
@@ -280,7 +374,9 @@ function Remove-SafeItem {
         
         [switch]$Force,
         
-        [switch]$Recurse
+        [switch]$Recurse,
+
+        [scriptblock]$Guard = $null
     )
     
     # Validate path safety
@@ -290,12 +386,14 @@ function Remove-SafeItem {
     }
     
     # Check if path exists
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         Write-Debug "Path does not exist: $Path"
         return $false
     }
 
-    $isDirectory = Test-Path $Path -PathType Container
+    $pathSnapshot = Get-MolePathSnapshot -Path $Path -AllowLeafLink
+    if (-not $pathSnapshot) { return $false }
+    $isDirectory = Test-Path -LiteralPath $Path -PathType Container
     $validatedTree = $null
     if ($isDirectory) {
         $validatedTree = Get-SafeDirectoryTreeItems -Path $Path
@@ -309,6 +407,14 @@ function Remove-SafeItem {
     $sizeKB = [Math]::Ceiling($size / 1024)
     $sizeHuman = Format-ByteSize -Bytes $size
     
+    if (-not (Test-SafePath $Path) -or -not (Test-MolePathSnapshot $pathSnapshot)) { return $false }
+
+    if ($null -ne $Guard) {
+        try { $allowed = & $Guard $Path } catch { return $false }
+        if ($allowed -isnot [bool] -or -not $allowed) { return $false }
+    }
+    if (-not (Test-MolePathSnapshot $pathSnapshot)) { return $false }
+
     # Handle dry run
     if ($script:MoleDryRunMode) {
         $script:TotalSizeCleaned += $sizeKB
@@ -372,11 +478,13 @@ function Remove-SafeItems {
             continue
         }
         
-        if (-not (Test-Path $path)) {
+        if (-not (Test-Path -LiteralPath $path)) {
             continue
         }
 
-        $isDirectory = Test-Path $path -PathType Container
+        $pathSnapshot = Get-MolePathSnapshot -Path $path -AllowLeafLink
+        if (-not $pathSnapshot) { continue }
+        $isDirectory = Test-Path -LiteralPath $path -PathType Container
         $validatedTree = $null
         if ($isDirectory) {
             $validatedTree = Get-SafeDirectoryTreeItems -Path $path
@@ -387,7 +495,8 @@ function Remove-SafeItems {
         }
         
         $size = Get-PathSize -Path $path
-        
+        if (-not (Test-SafePath $path) -or -not (Test-MolePathSnapshot $pathSnapshot)) { continue }
+
         if ($script:MoleDryRunMode) {
             $totalSize += $size
             $removedCount++
@@ -471,16 +580,18 @@ function Remove-OldFiles {
         [string]$Description = "Old files"
     )
     
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         return
     }
     
+    $rootSnapshot = Get-MolePathSnapshot -Path $Path
+    if (-not $rootSnapshot) { return }
     $cutoffDate = (Get-Date).AddDays(-$DaysOld)
     
-    $oldFiles = Get-ChildItem -Path $Path -Filter $Filter -File -Force -ErrorAction SilentlyContinue |
+    $oldFiles = Get-ChildItem -LiteralPath $Path -Filter $Filter -File -Force -ErrorAction SilentlyContinue |
                 Where-Object { $_.LastWriteTime -lt $cutoffDate }
     
-    if ($oldFiles) {
+    if ($oldFiles -and (Test-MolePathSnapshot $rootSnapshot)) {
         $paths = $oldFiles | ForEach-Object { $_.FullName }
         Remove-SafeItems -Paths $paths -Description "$Description (>${DaysOld}d old)"
     }
@@ -498,7 +609,7 @@ function Remove-EmptyDirectories {
         [string]$Description = "Empty directories"
     )
     
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         return
     }
     
@@ -508,11 +619,15 @@ function Remove-EmptyDirectories {
     for ($i = 0; $i -lt $maxIterations; $i++) {
         # @() keeps a single empty folder an array: a lone DirectoryInfo has no
         # .Count, which Windows PowerShell 5.1 strict mode rejects.
-        $emptyDirs = @(Get-ChildItem -Path $Path -Directory -Recurse -Force -ErrorAction SilentlyContinue |
+        try {
+            $emptyDirs = @(Get-TreeItemsNoFollow -Path $Path -SkipUnreadable |
+                     Where-Object { $_.PSIsContainer -and -not (Test-IsReparsePoint $_.FullName) } |
                      Where-Object { 
-                         (Get-ChildItem -Path $_.FullName -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0
+                         (Get-ChildItem -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue | Measure-Object).Count -eq 0
                      })
-        
+        }
+        catch { return }
+
         if (-not $emptyDirs -or $emptyDirs.Count -eq 0) {
             break
         }
@@ -521,8 +636,8 @@ function Remove-EmptyDirectories {
             if (Test-SafePath -Path $dir.FullName) {
                 if (-not $script:MoleDryRunMode) {
                     try {
-                        Remove-Item -Path $dir.FullName -Force -ErrorAction Stop
-                        $removedCount++
+                        if ((Test-MolePathSnapshot $dir.MolePathSnapshot) -and
+                            (Remove-SafeItem -Path $dir.FullName)) { $removedCount++ }
                     }
                     catch {
                         Write-Debug "Could not remove empty dir: $($dir.FullName)"
@@ -558,7 +673,7 @@ function Clear-DirectoryContents {
         [string]$Description = ""
     )
     
-    if (-not (Test-Path $Path)) {
+    if (-not (Test-Path -LiteralPath $Path)) {
         return
     }
     
@@ -566,8 +681,10 @@ function Clear-DirectoryContents {
         return
     }
     
-    $items = Get-ChildItem -Path $Path -Force -ErrorAction SilentlyContinue
-    if ($items) {
+    $rootSnapshot = Get-MolePathSnapshot -Path $Path
+    if (-not $rootSnapshot) { return }
+    $items = Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if ($items -and (Test-MolePathSnapshot $rootSnapshot)) {
         $paths = $items | ForEach-Object { $_.FullName }
         $desc = if ($Description) { $Description } else { Split-Path -Leaf $Path }
         Remove-SafeItems -Paths $paths -Description $desc

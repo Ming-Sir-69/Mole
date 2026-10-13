@@ -68,7 +68,6 @@ $script:ArtifactPatterns = @(
     @{ Name = "bin"; Type = "Directory"; Language = ".NET" }
     @{ Name = "obj"; Type = "Directory"; Language = ".NET" }
     @{ Name = ".gradle"; Type = "Directory"; Language = "Java/Gradle" }
-    @{ Name = ".idea"; Type = "Directory"; Language = "JetBrains IDE" }
     @{ Name = "*.log"; Type = "File"; Language = "Logs" }
 )
 
@@ -185,84 +184,193 @@ function Edit-SearchPaths {
 # Project Discovery
 # ============================================================================
 
-function Find-Projects {
-    <#
-    .SYNOPSIS
-        Find all development projects in search paths
-    #>
-    param([string[]]$SearchPaths)
-
-    $projects = @()
-
-    # Project markers
-    $projectMarkers = @(
-        "package.json"      # Node.js
-        "composer.json"     # PHP
-        "Cargo.toml"        # Rust
-        "go.mod"            # Go
-        "pom.xml"           # Java/Maven
-        "build.gradle"      # Java/Gradle
-        "requirements.txt"  # Python
-        "pyproject.toml"    # Python
-        "*.csproj"          # .NET
-        "*.sln"             # .NET Solution
-    )
-
-    $esc = [char]27
-    $pathCount = 0
-    $totalPaths = if ($null -eq $SearchPaths) { 0 } else { @($SearchPaths).Count }
-    if ($totalPaths -eq 0) {
-        return $projects
+# Run only read-only Git queries. The child must not inherit a redirected index,
+# repository, pathspec mode, configuration or fsmonitor hook from the caller.
+function Invoke-PurgeGit {
+    param([string]$ProjectPath, [string[]]$Arguments)
+    $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $git) { return $null }
+    $quote = {
+        param([string]$Value)
+        $escaped = [regex]::Replace($Value, '(\\*)"', '$1$1\"')
+        $escaped = [regex]::Replace($escaped, '(\\+)$', '$1$1')
+        return '"' + $escaped + '"'
     }
+    $words = @('-c', 'core.fsmonitor=false', '-C', $ProjectPath) + $Arguments
+    $process = New-Object Diagnostics.Process
+    $process.StartInfo = New-Object Diagnostics.ProcessStartInfo
+    $process.StartInfo.FileName = $git.Source
+    $process.StartInfo.Arguments = ($words | ForEach-Object { & $quote $_ }) -join ' '
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    $process.StartInfo.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $process.StartInfo.StandardErrorEncoding = [Text.Encoding]::UTF8
+    foreach ($key in @($process.StartInfo.EnvironmentVariables.Keys)) {
+        if ($key -like 'GIT_*') { $process.StartInfo.EnvironmentVariables.Remove($key) }
+    }
+    $process.StartInfo.EnvironmentVariables['GIT_CONFIG_NOSYSTEM'] = '1'
+    $process.StartInfo.EnvironmentVariables['GIT_CONFIG_GLOBAL'] = '/dev/null'
+    $process.StartInfo.EnvironmentVariables['GIT_TERMINAL_PROMPT'] = '0'
+    try {
+        $null = $process.Start()
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit(5000)) {
+            $process.Kill()
+            return $null
+        }
+        if (-not $stdout.Wait(1000) -or -not $stderr.Wait(1000) -or $process.ExitCode -ne 0) { return $null }
+        return @{ Output = $stdout.Result }
+    }
+    catch { return $null }
+    finally { $process.Dispose() }
+}
 
+function Test-PurgeArtifactKind {
+    param([string]$ProjectPath, [string]$Name)
+    try {
+        $files = @(Get-ChildItem -LiteralPath $ProjectPath -File -Force -ErrorAction Stop)
+        $names = @($files | ForEach-Object Name)
+        switch ($Name) {
+            '.idea' { return $false }
+            'bin' { return @($names -match '\.(cs|fs|vb)proj$').Count -gt 0 }
+            'obj' { return @($names -match '\.(cs|fs|vb)proj$').Count -gt 0 }
+            'target' { return $names -contains 'Cargo.toml' -or $names -contains 'pom.xml' }
+            'vendor' { return $names -contains 'go.mod' -or $names -contains 'composer.json' }
+            { $_ -eq 'build' -or $_ -eq 'dist' } {
+                if ($Name -eq 'build' -and ($names -contains 'build.gradle' -or $names -contains 'build.gradle.kts' -or $names -contains 'CMakeLists.txt')) { return $true }
+                if ($names -contains 'setup.py') { return $true }
+                if ($names -contains 'pyproject.toml') {
+                    if ((Get-Content -LiteralPath (Join-Path $ProjectPath 'pyproject.toml') -Raw -ErrorAction Stop) -match '(?m)^\s*\[build-system\]') { return $true }
+                }
+                if ($names -contains 'package.json') {
+                    $package = Get-Content -LiteralPath (Join-Path $ProjectPath 'package.json') -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+                    if ($package.PSObject.Properties['scripts'] -and $package.scripts -and $package.scripts.PSObject.Properties['build']) {
+                        return $package.scripts.build -is [string] -and -not [string]::IsNullOrWhiteSpace($package.scripts.build)
+                    }
+                }
+                return $false
+            }
+            default { return $true }
+        }
+    }
+    catch { return $false }
+}
+
+# Eligibility is checked at discovery and again after the delete helper sizes
+# the candidate. Neither a familiar directory name nor Git ignore state proves
+# that its contents are disposable.
+function Test-PurgeArtifactContent {
+    param([string]$ProjectPath, [string]$Path)
+    try {
+        $snapshot = Get-MolePathSnapshot -Path $Path
+        if (-not $snapshot -or -not (Test-PurgeArtifactKind $ProjectPath ([IO.Path]::GetFileName($Path)))) { return $false }
+        $project = [IO.Path]::GetFullPath($ProjectPath).TrimEnd('\')
+        if (-not [string]::Equals([IO.Path]::GetDirectoryName($snapshot.Path), $project, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        if (Test-Path -LiteralPath $Path -PathType Container) {
+            foreach ($child in Get-TreeItemsNoFollow -Path $Path) {
+                if ($child.Name -eq '.git') { return $false }
+            }
+        }
+        # Determine repository membership without turning a failed Git command
+        # into evidence that this is an unversioned directory.
+        $ancestor = $project
+        $hasRepository = $false
+        while ($ancestor) {
+            if (-not (Get-MolePathSnapshot -Path $ancestor)) { return $false }
+            try {
+                # PS 5.1's provider can return null without an error for a
+                # missing literal child of a bracket-named directory. Read the
+                # filesystem attribute directly, preserving unknown failures.
+                $null = [IO.File]::GetAttributes((Join-Path $ancestor '.git'))
+                $hasRepository = $true
+                break
+            }
+            catch {
+                $failure = $_.Exception
+                while ($failure.InnerException) { $failure = $failure.InnerException }
+                $code = $failure.HResult -band 0xFFFF
+                if ($code -ne 2 -and $code -ne 3) { return $false }
+            }
+            $ancestor = [IO.Path]::GetDirectoryName($ancestor)
+        }
+        if ($hasRepository) {
+            $root = Invoke-PurgeGit $project @('rev-parse', '--show-toplevel')
+            if (-not $root) { return $false }
+            $repository = $root.Output.Trim().Replace('/', '\').TrimEnd('\')
+            $prefix = $repository + '\'
+            if (-not $snapshot.Path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+            $relative = $snapshot.Path.Substring($prefix.Length).Replace('\', '/')
+            $tracked = Invoke-PurgeGit $project @('ls-files', '-z', '--', (':(top,literal,icase)' + $relative))
+            if (-not $tracked -or $tracked.Output.Length -gt 0) { return $false }
+        }
+        return Test-MolePathSnapshot $snapshot
+    }
+    catch {
+        Write-Debug "Could not verify purge artifact: $Path - $_"
+        return $false
+    }
+}
+
+function Get-PurgeProjectDirectories {
+    param([string]$Root)
+    $pending = New-Object System.Collections.Generic.Stack[object]
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $pending.Push(@{ Path = $Root; Depth = 0 })
+    $excluded = @($script:ArtifactPatterns | Where-Object { $_.Type -eq 'Directory' } | ForEach-Object Name) + @('.git', '.idea')
+    while ($pending.Count -gt 0) {
+        if ($timer.Elapsed.TotalSeconds -ge 15) { return }
+        $directory = $pending.Pop()
+        $snapshot = Get-MolePathSnapshot -Path $directory.Path
+        if (-not $snapshot) { continue }
+        try { $children = @(Get-ChildItem -LiteralPath $directory.Path -Force -ErrorAction Stop) }
+        catch { continue }
+        if (-not (Test-MolePathSnapshot $snapshot)) { continue }
+        $marker = $children | Where-Object {
+            -not $_.PSIsContainer -and ($_.Name -match '^(package\.json|composer\.json|Cargo\.toml|go\.mod|pom\.xml|build\.gradle(\.kts)?|requirements\.txt|pyproject\.toml|.+\.(csproj|fsproj|vbproj|sln))$')
+        } | Select-Object -First 1
+        if ($marker) { [pscustomobject]@{ Path = $directory.Path; Marker = $marker.Name } }
+        if ($directory.Depth -ge 4) { continue }
+        foreach ($child in $children) {
+            if ($timer.Elapsed.TotalSeconds -ge 15) { return }
+            if ($child.PSIsContainer -and $excluded -notcontains $child.Name -and
+                ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+                $pending.Push(@{ Path = $child.FullName; Depth = $directory.Depth + 1 })
+            }
+        }
+    }
+}
+
+function Find-Projects {
+    param([string[]]$SearchPaths)
+    $projects = @()
+    $seen = @{}
+    $pathCount = 0
+    $totalPaths = @($SearchPaths).Count
     foreach ($searchPath in $SearchPaths) {
         $pathCount++
         Write-Progress -Activity "Scanning for projects" `
             -Status "Searching: $searchPath" `
             -PercentComplete (($pathCount / $totalPaths) * 100)
-
-        foreach ($marker in $projectMarkers) {
-            try {
-                $found = Get-ChildItem -Path $searchPath -Filter $marker -Recurse -Depth 4 -ErrorAction SilentlyContinue
-
-                foreach ($item in $found) {
-                    $projectPath = Split-Path -Parent $item.FullName
-
-                    # Skip if already found or if it's inside node_modules, etc.
-                    $existingPaths = @($projects | ForEach-Object { $_.Path })
-                    if ($existingPaths -contains $projectPath) { continue }
-                    if ($projectPath -like "*\node_modules\*") { continue }
-                    if ($projectPath -like "*\vendor\*") { continue }
-                    if ($projectPath -like "*\.git\*") { continue }
-
-                    # Find artifacts in this project
-                    $artifacts = @(Find-ProjectArtifacts -ProjectPath $projectPath)
-                    $artifactCount = if ($null -eq $artifacts) { 0 } else { $artifacts.Count }
-
-                    if ($artifactCount -gt 0) {
-                        $totalSize = ($artifacts | Measure-Object -Property SizeKB -Sum).Sum
-                        if ($null -eq $totalSize) { $totalSize = 0 }
-
-                        $projects += [PSCustomObject]@{
-                            Path = $projectPath
-                            Name = Split-Path -Leaf $projectPath
-                            Marker = $marker
-                            Artifacts = $artifacts
-                            TotalSizeKB = $totalSize
-                            TotalSizeHuman = Format-ByteSize -Bytes ($totalSize * 1024)
-                        }
-                    }
-                }
-            }
-            catch {
-                Write-Debug "Error scanning $searchPath for $marker : $_"
+        foreach ($project in Get-PurgeProjectDirectories -Root $searchPath) {
+            if ($seen.ContainsKey($project.Path)) { continue }
+            $seen[$project.Path] = $true
+            $artifacts = @(Find-ProjectArtifacts -ProjectPath $project.Path)
+            if ($artifacts.Count -eq 0) { continue }
+            $totalSize = ($artifacts | Measure-Object -Property SizeKB -Sum).Sum
+            $projects += [pscustomobject]@{
+                Path = $project.Path
+                Name = Split-Path -Leaf $project.Path
+                Marker = $project.Marker
+                Artifacts = $artifacts
+                TotalSizeKB = $totalSize
+                TotalSizeHuman = Format-ByteSize -Bytes ($totalSize * 1024)
             }
         }
     }
-
     Write-Progress -Activity "Scanning for projects" -Completed
-
-    # Sort by size (largest first)
     return $projects | Sort-Object -Property TotalSizeKB -Descending
 }
 
@@ -276,13 +384,19 @@ function Find-ProjectArtifacts {
     $artifacts = @()
 
     foreach ($pattern in $script:ArtifactPatterns) {
-        $items = Get-ChildItem -Path $ProjectPath -Filter $pattern.Name -Force -ErrorAction SilentlyContinue
+        $items = Get-ChildItem -LiteralPath $ProjectPath -Filter $pattern.Name -Force -ErrorAction SilentlyContinue
 
         foreach ($item in $items) {
+            if (-not (Test-PurgeArtifactKind $ProjectPath $item.Name)) { continue }
+            $snapshot = Get-MolePathSnapshot -Path $item.FullName
+            if (-not $snapshot) { continue }
             if ($pattern.Type -eq "Directory" -and $item.PSIsContainer) {
                 $sizeKB = Get-PathSizeKB -Path $item.FullName
 
+                if (-not (Test-MolePathSnapshot $snapshot) -or
+                    -not (Test-PurgeArtifactContent $ProjectPath $item.FullName)) { continue }
                 $artifacts += [PSCustomObject]@{
+                    Snapshot = $snapshot
                     Path = $item.FullName
                     Name = $item.Name
                     Type = "Directory"
@@ -294,7 +408,10 @@ function Find-ProjectArtifacts {
             elseif ($pattern.Type -eq "File" -and -not $item.PSIsContainer) {
                 $sizeKB = [Math]::Ceiling($item.Length / 1024)
 
+                if (-not (Test-MolePathSnapshot $snapshot) -or
+                    -not (Test-PurgeArtifactContent $ProjectPath $item.FullName)) { continue }
                 $artifacts += [PSCustomObject]@{
+                    Snapshot = $snapshot
                     Path = $item.FullName
                     Name = $item.Name
                     Type = "File"
@@ -481,10 +598,19 @@ function Remove-ProjectArtifacts {
         Write-Host "$esc[34m$($script:Icons.Arrow)$esc[0m $($project.Name)"
 
         foreach ($artifact in $project.Artifacts) {
-            if (Test-Path $artifact.Path) {
+            if (Test-Path -LiteralPath $artifact.Path) {
+                if (-not (Test-MolePathSnapshot $artifact.Snapshot) -or
+                    -not (Test-PurgeArtifactContent $project.Path $artifact.Path)) { continue }
+                $projectPath = $project.Path
+                $previewSnapshot = $artifact.Snapshot
+                $guard = {
+                    param($candidate)
+                    return (Test-MolePathSnapshot $previewSnapshot) -and
+                        (Test-PurgeArtifactContent $projectPath $candidate)
+                }
                 # Remove-SafeItem prints the result row and adds the size to
                 # $script:TotalSizeCleaned; counting it here as well doubled it.
-                $success = Remove-SafeItem -Path $artifact.Path -Description $artifact.Name -Recurse
+                $success = Remove-SafeItem -Path $artifact.Path -Description $artifact.Name -Recurse -Guard $guard
 
                 if ($success) {
                     $script:ItemsCleaned++

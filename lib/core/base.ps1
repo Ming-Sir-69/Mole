@@ -422,6 +422,18 @@ function Test-ProtectedPath {
     return $false
 }
 
+function Test-WhitelistPattern {
+    param([string]$Path, [string]$Pattern)
+
+    if ($Path -like $Pattern) { return $true }
+    # A literal directory entry protects its descendants, not prefix siblings.
+    if (-not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($Pattern)) {
+        $root = $Pattern.TrimEnd('\')
+        return $Path.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)
+    }
+    return $false
+}
+
 function Test-Whitelisted {
     <#
     .SYNOPSIS
@@ -432,7 +444,7 @@ function Test-Whitelisted {
     # Check default patterns
     foreach ($pattern in $script:DefaultWhitelistPatterns) {
         $expandedPattern = [Environment]::ExpandEnvironmentVariables($pattern)
-        if ($Path -like $expandedPattern) {
+        if (Test-WhitelistPattern -Path $Path -Pattern $expandedPattern) {
             return $true
         }
     }
@@ -443,7 +455,7 @@ function Test-Whitelisted {
         foreach ($pattern in $userPatterns) {
             $pattern = $pattern.Trim()
             if ($pattern -and -not $pattern.StartsWith('#')) {
-                if ($Path -like $pattern) {
+                if (Test-WhitelistPattern -Path $Path -Pattern $pattern) {
                     return $true
                 }
             }

@@ -18,55 +18,121 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Node.js / JavaScript Ecosystem
 # ============================================================================
 
+# Invoke an installed owner in a bounded child process. Encoded PowerShell keeps
+# executable paths and arguments as data, including spaces and quote characters.
+function Invoke-MoleOwnerProcess {
+    param([string]$Name, [string[]]$Arguments, [int]$TimeoutSeconds = 5)
+
+    $command = Get-Command $Name -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $command) { return $null }
+    $quote = { param($value) "'" + $value.Replace("'", "''") + "'" }
+    $words = @(& $quote $command.Source) + @($Arguments | ForEach-Object { & $quote $_ })
+    $code = '$ErrorActionPreference = ''Stop''; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; & ' + ($words -join ' ') + '; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }'
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($code))
+    $process = New-Object Diagnostics.Process
+    $started = $false
+    $process.StartInfo = New-Object Diagnostics.ProcessStartInfo
+    $process.StartInfo.FileName = Join-Path $PSHOME 'powershell.exe'
+    if (-not (Test-Path -LiteralPath $process.StartInfo.FileName)) {
+        $process.StartInfo.FileName = Join-Path $PSHOME 'pwsh.exe'
+    }
+    $process.StartInfo.Arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + $encoded
+    $process.StartInfo.UseShellExecute = $false
+    $process.StartInfo.CreateNoWindow = $true
+    $process.StartInfo.RedirectStandardOutput = $true
+    $process.StartInfo.RedirectStandardError = $true
+    $process.StartInfo.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $process.StartInfo.StandardErrorEncoding = [Text.Encoding]::UTF8
+    try {
+        $null = $process.Start()
+        $started = $true
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            return $null
+        }
+        if (-not $stdout.Wait(1000) -or -not $stderr.Wait(1000)) { return $null }
+        if ($process.ExitCode -ne 0) { return $null }
+        return [pscustomobject]@{ Output = $stdout.Result.Trim() }
+    }
+    catch { return $null }
+    finally {
+        # Also terminate on capture exceptions, not only WaitForExit timeouts.
+        if ($started -and -not $process.HasExited) {
+            try {
+                $stopper = New-Object Diagnostics.Process
+                $stopper.StartInfo.FileName = "$env:SystemRoot\System32\taskkill.exe"
+                $stopper.StartInfo.Arguments = '/PID ' + $process.Id + ' /T /F'
+                $stopper.StartInfo.UseShellExecute = $false
+                $stopper.StartInfo.CreateNoWindow = $true
+                $stopper.StartInfo.RedirectStandardOutput = $true
+                $stopper.StartInfo.RedirectStandardError = $true
+                $null = $stopper.Start()
+                $null = $stopper.StandardOutput.ReadToEndAsync()
+                $null = $stopper.StandardError.ReadToEndAsync()
+                $null = $stopper.WaitForExit(5000)
+                $stopper.Dispose()
+            }
+            catch { Write-Debug "$Name process tree cancellation failed: $_" }
+            if (-not $process.HasExited) { try { $process.Kill() } catch { } }
+        }
+        $process.Dispose()
+    }
+}
+
+function Get-MoleOwnerCachePath {
+    param([string]$Name, [string[]]$Arguments)
+
+    $result = Invoke-MoleOwnerProcess -Name $Name -Arguments $Arguments
+    if ($null -eq $result -or [string]::IsNullOrWhiteSpace($result.Output)) { return $null }
+    $path = $result.Output.Trim()
+    if ($path -match '[\r\n]' -or $path -notmatch '^[A-Za-z]:\\') { return $null }
+    return $path
+}
+
+function Invoke-MoleOwnerCacheCleanup {
+    param([string]$Name, [string[]]$Query, [string[]]$Arguments, [string]$Description)
+
+    $path = Get-MoleOwnerCachePath -Name $Name -Arguments $Query
+    if (-not $path -or -not (Test-SafePath $path)) { return }
+    $snapshot = Get-MolePathSnapshot -Path $path
+    if (-not $snapshot) { return }
+    # A whole-cache owner command must honor descendant whitelist entries too.
+    $tree = Get-SafeDirectoryTreeItems -Path $path
+    if (-not $tree.Success -or -not (Test-MolePathSnapshot $snapshot)) { return }
+    foreach ($item in $tree.Items) {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return }
+    }
+    if (Test-DryRunMode) {
+        Write-DryRun $Description
+        return
+    }
+    # Query again at the boundary; a changed configuration is not the previewed root.
+    $current = Get-MoleOwnerCachePath -Name $Name -Arguments $Query
+    if ($current -ne $path -or -not (Test-SafePath $path) -or
+        -not (Test-MolePathSnapshot $snapshot)) { return }
+    foreach ($item in $tree.Items) {
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return }
+        if (-not (Test-SafePath $item.FullName) -or
+            -not (Test-MolePathSnapshot $item.MolePathSnapshot)) { return }
+    }
+    $result = Invoke-MoleOwnerProcess -Name $Name -Arguments $Arguments -TimeoutSeconds 120
+    if ($null -ne $result) {
+        Write-Success $Description
+        Set-SectionActivity
+    }
+    else { Write-Debug "$Name cache cleanup did not complete" }
+}
+
 function Clear-NpmCache {
     <#
     .SYNOPSIS
         Clean npm, pnpm, yarn, and bun caches
     #>
     
-    # npm cache
-    if (Get-Command npm -ErrorAction SilentlyContinue) {
-        if (Test-DryRunMode) {
-            Write-DryRun "npm cache"
-        }
-        else {
-            try {
-                $null = npm cache clean --force 2>&1
-                Write-Success "npm cache"
-                Set-SectionActivity
-            }
-            catch {
-                Write-Debug "npm cache clean failed: $_"
-            }
-        }
-    }
-    
-    # npm cache directory (fallback)
-    $npmCachePath = "$env:APPDATA\npm-cache"
-    if (Test-Path $npmCachePath) {
-        Clear-DirectoryContents -Path $npmCachePath -Description "npm cache directory"
-    }
-    
-    # pnpm store
-    $pnpmStorePath = "$env:LOCALAPPDATA\pnpm\store"
-    if (Test-Path $pnpmStorePath) {
-        if (Get-Command pnpm -ErrorAction SilentlyContinue) {
-            if (Test-DryRunMode) {
-                Write-DryRun "pnpm store"
-            }
-            else {
-                try {
-                    $null = pnpm store prune 2>&1
-                    Write-Success "pnpm store pruned"
-                    Set-SectionActivity
-                }
-                catch {
-                    Write-Debug "pnpm store prune failed: $_"
-                }
-            }
-        }
-    }
-    
+    Invoke-MoleOwnerCacheCleanup -Name 'npm' -Query @('config', 'get', 'cache') -Arguments @('cache', 'clean', '--force') -Description 'npm cache'
+    Invoke-MoleOwnerCacheCleanup -Name 'pnpm' -Query @('store', 'path') -Arguments @('store', 'prune') -Description 'pnpm store'
+
     # Yarn cache
     $yarnCachePaths = @(
         "$env:LOCALAPPDATA\Yarn\Cache"
@@ -120,29 +186,8 @@ function Clear-PythonCaches {
         Clean Python and pip caches
     #>
     
-    # pip cache
-    if (Get-Command pip -ErrorAction SilentlyContinue) {
-        if (Test-DryRunMode) {
-            Write-DryRun "pip cache"
-        }
-        else {
-            try {
-                $null = pip cache purge 2>&1
-                Write-Success "pip cache"
-                Set-SectionActivity
-            }
-            catch {
-                Write-Debug "pip cache purge failed: $_"
-            }
-        }
-    }
-    
-    # pip cache directory
-    $pipCachePath = "$env:LOCALAPPDATA\pip\Cache"
-    if (Test-Path $pipCachePath) {
-        Clear-DirectoryContents -Path $pipCachePath -Description "pip cache directory"
-    }
-    
+    Invoke-MoleOwnerCacheCleanup -Name 'pip' -Query @('cache', 'dir') -Arguments @('cache', 'purge') -Description 'pip cache'
+
     # Python bytecode caches (__pycache__)
     # Note: These are typically in project directories, cleaned by purge command
     
@@ -227,88 +272,20 @@ function Clear-GoCaches {
         Clean Go build and module caches
     #>
     
-    if (Get-Command go -ErrorAction SilentlyContinue) {
-        if (Test-DryRunMode) {
-            Write-DryRun "Go cache"
-        }
-        else {
-            try {
-                $null = go clean -cache 2>&1
-                Write-Success "Go build cache"
-                Set-SectionActivity
-            }
-            catch {
-                Write-Debug "go clean -cache failed: $_"
-            }
-        }
-    }
-    
-    # Go module cache
-    $goModCachePath = "$env:GOPATH\pkg\mod\cache"
-    if (-not $env:GOPATH) {
-        $goModCachePath = "$env:USERPROFILE\go\pkg\mod\cache"
-    }
-    if (Test-Path $goModCachePath) {
-        Clear-DirectoryContents -Path $goModCachePath -Description "Go module cache"
+    Invoke-MoleOwnerCacheCleanup -Name 'go' -Query @('env', 'GOCACHE') -Arguments @('clean', '-cache') -Description 'Go build cache'
+
+    $moduleRoot = Get-MoleOwnerCachePath -Name 'go' -Arguments @('env', 'GOMODCACHE')
+    if ($moduleRoot) {
+        Clear-DirectoryContents -Path (Join-Path $moduleRoot 'cache') -Description 'Go module cache'
     }
 }
 
 function Get-MiseCachePath {
-    <#
-    .SYNOPSIS
-        Resolve the mise cache directory without touching installs/plugins
-    #>
-
-    if (-not [string]::IsNullOrWhiteSpace($env:MISE_CACHE_DIR)) {
-        return $env:MISE_CACHE_DIR
-    }
-
-    if (-not (Get-Command mise -ErrorAction SilentlyContinue)) {
-        return $null
-    }
-
-    try {
-        $cachePath = (& mise cache path 2>$null | Select-Object -First 1)
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($cachePath)) {
-            return $cachePath.Trim()
-        }
-    }
-    catch {
-        Write-Debug "mise cache path failed: $_"
-    }
-
-    return $null
+    return Get-MoleOwnerCachePath -Name 'mise' -Arguments @('cache', 'path')
 }
 
 function Clear-MiseCache {
-    <#
-    .SYNOPSIS
-        Clean mise internal cache only
-    .DESCRIPTION
-        Respects MISE_CACHE_DIR and never removes the installs/plugins data tree.
-    #>
-
-    $hasMise = [bool](Get-Command mise -ErrorAction SilentlyContinue)
-    $cachePath = Get-MiseCachePath
-    $clearedByCommand = $false
-
-    if ($hasMise -and -not (Test-DryRunMode)) {
-        try {
-            $null = & mise cache clear 2>&1
-            if ($LASTEXITCODE -eq 0) {
-                Write-Success "mise cache"
-                Set-SectionActivity
-                $clearedByCommand = $true
-            }
-        }
-        catch {
-            Write-Debug "mise cache clear failed: $_"
-        }
-    }
-
-    if (-not $clearedByCommand -and $cachePath -and (Test-Path $cachePath)) {
-        Clear-DirectoryContents -Path $cachePath -Description "mise cache"
-    }
+    Invoke-MoleOwnerCacheCleanup -Name 'mise' -Query @('cache', 'path') -Arguments @('cache', 'clear') -Description 'mise cache'
 }
 
 # ============================================================================
@@ -350,23 +327,9 @@ function Clear-JvmCaches {
         Clean JVM ecosystem caches (Gradle, Maven, etc.)
     #>
     
-    # Gradle caches
-    $gradleCachePaths = @(
-        "$env:USERPROFILE\.gradle\caches"
-        "$env:USERPROFILE\.gradle\daemon"
-        "$env:USERPROFILE\.gradle\wrapper\dists"
-    )
-    foreach ($path in $gradleCachePaths) {
-        if (Test-Path $path) {
-            # Only clean temp and old daemon logs
-            $tempFiles = Get-ChildItem -Path $path -Recurse -Filter "*.lock" -ErrorAction SilentlyContinue
-            if ($tempFiles) {
-                $paths = $tempFiles | ForEach-Object { $_.FullName }
-                Remove-SafeItems -Paths $paths -Description "Gradle lock files"
-            }
-        }
-    }
-    
+    # Gradle lock files coordinate active builds and downloads. Neither their
+    # age nor an idle process proves that removing one is safe.
+
     # Maven repository (only clean temp files)
     $mavenRepoPath = "$env:USERPROFILE\.m2\repository"
     if (Test-Path $mavenRepoPath) {
@@ -383,44 +346,10 @@ function Clear-JvmCaches {
 # ============================================================================
 
 function Clear-DockerCaches {
-    <#
-    .SYNOPSIS
-        Clean Docker build caches and unused data
-    #>
-    
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-        return
-    }
-    
-    # Check if Docker daemon is running
-    $dockerRunning = $false
-    try {
-        $null = docker info 2>&1
-        $dockerRunning = $true
-    }
-    catch {
-        Write-Debug "Docker daemon not running"
-    }
-    
-    if ($dockerRunning) {
-        if (Test-DryRunMode) {
-            Write-DryRun "Docker build cache"
-        }
-        else {
-            try {
-                $null = docker builder prune -af 2>&1
-                Write-Success "Docker build cache"
-                Set-SectionActivity
-            }
-            catch {
-                Write-Debug "docker builder prune failed: $_"
-            }
-        }
-    }
-    
-    # Docker Desktop cache (Windows)
-    $dockerDesktopCache = "$env:LOCALAPPDATA\Docker\wsl\data"
-    # Note: Don't clean this - it's the WSL2 virtual disk
+    # A builder can use a remote daemon, a container or a Desktop VM disk. Docker
+    # exposes no complete Windows path plan for builder prune, so local whitelist
+    # checks cannot constrain its mutation. Keep this owner cleanup review-only.
+    Write-Debug 'Docker build cache kept: cleanup roots cannot be verified against the whitelist'
 }
 
 # ============================================================================

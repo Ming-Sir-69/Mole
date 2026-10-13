@@ -28,7 +28,9 @@ BeforeAll {
         "Test-MoleInstallFolder", "Get-MsiProductCode", "Split-UninstallCommand", "Test-InnoUninstaller",
         "Test-NsisUninstaller", "Test-SteamClientUninstaller", "Get-UninstallLaunch"
     )
-    Import-ScriptFunction -Script (Join-Path $script:WindowsDir "bin\purge.ps1") -Names @("Remove-ProjectArtifacts")
+    Import-ScriptFunction -Script (Join-Path $script:WindowsDir "bin\purge.ps1") -Names @(
+        "Remove-ProjectArtifacts", "Test-PurgeArtifactKind", "Test-PurgeArtifactContent", "Invoke-PurgeGit"
+    )
     $script:AppCacheFile = Join-Path $TestDrive "no-cache.json"
 }
 
@@ -78,7 +80,8 @@ Describe "mo purge accounting" {
         $sizeKB = [Math]::Ceiling((Get-PathSize -Path $artifact) / 1024)
         $project = [pscustomobject]@{
             Name      = "project"
-            Artifacts = @([pscustomobject]@{ Path = $artifact; Name = "node_modules"; SizeKB = $sizeKB; SizeHuman = "8KB" })
+            Path      = Split-Path -Parent $artifact
+            Artifacts = @([pscustomobject]@{ Snapshot = (Get-MolePathSnapshot $artifact); Path = $artifact; Name = "node_modules"; SizeKB = $sizeKB; SizeHuman = "8KB" })
         }
 
         Remove-ProjectArtifacts -Projects @($project) 6>$null

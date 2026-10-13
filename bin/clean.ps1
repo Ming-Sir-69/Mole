@@ -305,7 +305,8 @@ function Main {
     }
 
     # Set dry-run mode
-    if ($DryRun) {
+    $effectiveDryRun = $DryRun -or ($env:MOLE_DRY_RUN -eq '1')
+    if ($effectiveDryRun) {
         $env:MOLE_DRY_RUN = "1"
     }
     else {
@@ -314,7 +315,7 @@ function Main {
 
     # Run cleanup
     try {
-        Start-Cleanup -IsDryRun $DryRun -IncludeSystem $System -IncludeGameMedia $GameMedia
+        Start-Cleanup -IsDryRun $effectiveDryRun -IncludeSystem $System -IncludeGameMedia $GameMedia
     }
     finally {
         # Cleanup temp files
