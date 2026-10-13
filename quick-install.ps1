@@ -179,7 +179,7 @@ try {
         if (Test-SourceInstall -Path $InstallDir) {
             Write-Step "Existing source install found, refreshing..."
 
-            $fetchResult = Invoke-GitCommand -WorkingDirectory $InstallDir -Arguments @("fetch", "--quiet", "origin", "windows")
+            $fetchResult = Invoke-GitCommand -WorkingDirectory $InstallDir -Arguments @("fetch", "--quiet", "--tags", "origin", "windows")
             if ($fetchResult.ExitCode -ne 0) {
                 Write-ErrorMsg "Failed to fetch latest source"
                 if ($fetchResult.Text) {
@@ -206,7 +206,7 @@ try {
     else {
         Write-Step "Cloning Mole source..."
 
-        $cloneResult = Invoke-GitCommand -Arguments @("clone", "--quiet", "--depth", "1", "--branch", "windows", "https://github.com/tw93/Mole.git", $InstallDir)
+        $cloneResult = Invoke-GitCommand -Arguments @("clone", "--quiet", "--branch", "windows", "https://github.com/tw93/Mole.git", $InstallDir)
         if ($cloneResult.ExitCode -ne 0) {
             Write-ErrorMsg "Failed to clone source installer"
             if ($cloneResult.Text) {

@@ -191,7 +191,7 @@ switch -Regex ($commandLine) {
     '^remote get-url origin$' { "https://github.com/tw93/Mole.git"; break }
     '^branch --show-current$' { "windows"; break }
     '^rev-parse --short HEAD$' { "abc123"; break }
-    '^pull --ff-only origin windows$' { break }
+    '^pull --ff-only --tags origin windows$' { Set-Content -LiteralPath ($env:MOLE_INSTALL_CAPTURE + '.git') -Value $commandLine; break }
     default {
         Write-Error "Unexpected git command: $commandLine"
         $global:LASTEXITCODE = 1
@@ -209,6 +209,7 @@ switch -Regex ($commandLine) {
 
                 $capturePath | Should -Exist
                 Get-Content $capturePath -Raw | Should -Be $fixtureRoot
+                Get-Content -LiteralPath ($capturePath + ".git") | Should -Be "pull --ff-only --tags origin windows"
             }
             finally {
                 $env:PATH = $originalPath

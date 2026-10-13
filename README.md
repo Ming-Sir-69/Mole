@@ -28,7 +28,7 @@
 
 ## Quick Start
 
-Mole runs on Windows 10 and 11 with the built-in Windows PowerShell 5.1. The script install needs Git, installs into `%LOCALAPPDATA%\Programs\mole-cli`, and adds `mo` and `mole` to your PATH.
+Mole runs on Windows 10 and 11 with the built-in Windows PowerShell 5.1. The script install needs Git and, when the source differs from the latest release, Go to build the native tools. It installs into `%LOCALAPPDATA%\Programs\mole-cli`, and adds `mo` and `mole` to your PATH.
 
 **Install via Scoop**
 

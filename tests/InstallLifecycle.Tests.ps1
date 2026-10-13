@@ -65,6 +65,18 @@ exit 7
 '@ | Set-Content -LiteralPath (Join-Path $script:SourceDir 'mole.ps1')
         Install-Mole 6>$null | Should -BeTrue
     }
+    It 'Keeps a launcher symbolic-link target unchanged' -ForEach @('mo.cmd', 'mole.cmd') {
+        $launcher = Join-Path $script:SourceDir $_
+        $target = Join-Path $TestDrive ('outside-' + [guid]::NewGuid().ToString('N') + '.cmd')
+        Set-Content -LiteralPath $target -Value 'external launcher'
+        Remove-Item -LiteralPath $launcher -Force
+        $null = New-Item -ItemType SymbolicLink -Path $launcher -Target $target -ErrorAction Stop
+        try {
+            { Install-Mole 6>$null } | Should -Throw '*linked install path*'
+            Get-Content -LiteralPath $target | Should -Be 'external launcher'
+        }
+        finally { [System.IO.File]::Delete($launcher) }
+    }
     It 'Returns the script exit code when removal deletes its running batch file' {
         @'
 Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'mo.cmd') -Force
@@ -101,6 +113,59 @@ exit 7
             $actual[3] | Should -Be 'percent%value'
         }
         finally { $env:MOLE_TEST_CAPTURE = $saved }
+    }
+}
+
+Describe 'Copied installation ownership' {
+    BeforeEach {
+        $script:SourceDir = Join-Path $TestDrive ('copy-source-' + [guid]::NewGuid().ToString('N'))
+        $script:InstallDir = Join-Path $TestDrive ('copy-destination-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $script:SourceDir 'lib\core'), (Join-Path $script:SourceDir 'bin') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:SourceDir 'install.ps1') -Value '# installer'
+        Set-Content -LiteralPath (Join-Path $script:SourceDir 'mole.ps1') -Value '# entry'
+        Set-Content -LiteralPath (Join-Path $script:SourceDir 'lib\core\base.ps1') -Value '# core'
+        $script:VERSION = 'test'
+        $script:Force = $true
+        $script:AddToPath = $false
+        $script:CreateShortcut = $false
+        Mock Ensure-OptionalTuiTools {}
+        Mock Test-ProtectedInstallRoot { $false }
+    }
+    It 'Copies its installer so the installed remove command can run' {
+        Install-Mole 6>$null | Should -BeTrue
+        Get-Content -LiteralPath (Join-Path $script:InstallDir 'install.ps1') | Should -Be '# installer'
+    }
+    It 'Installs into a pre-created empty destination' {
+        New-Item -ItemType Directory -Path $script:InstallDir -Force | Out-Null
+        Install-Mole 6>$null | Should -BeTrue
+        Get-Content -LiteralPath (Join-Path $script:InstallDir 'install.ps1') | Should -Be '# installer'
+    }
+    It 'Preserves unrelated files when force updating a shared install' {
+        New-Item -ItemType Directory -Path (Join-Path $script:InstallDir 'bin'), (Join-Path $script:InstallDir 'lib\core') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:InstallDir 'mole.ps1') -Value '# old'
+        Set-Content -LiteralPath (Join-Path $script:InstallDir 'lib\core\base.ps1') -Value '# old'
+        Set-Content -LiteralPath (Join-Path $script:InstallDir 'bin\user-tool.exe') -Value 'mine'
+        Install-Mole 6>$null | Should -BeTrue
+        Get-Content -LiteralPath (Join-Path $script:InstallDir 'bin\user-tool.exe') | Should -Be 'mine'
+    }
+    It 'Refuses a linked destination ancestor without modifying its target' {
+        $outside = Join-Path $TestDrive ('outside-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $outside -Force | Out-Null
+        $link = Join-Path $TestDrive ('copy-link-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Junction -Path $link -Target $outside
+        try {
+            $script:InstallDir = Join-Path $link 'mole'
+            { Install-Mole 6>$null } | Should -Throw '*linked install path*'
+            @(Get-ChildItem -LiteralPath $outside -Force).Count | Should -Be 0
+        }
+        finally { [System.IO.Directory]::Delete($link) }
+    }
+    It 'Refuses force merging into an unrelated directory' {
+        New-Item -ItemType Directory -Path $script:InstallDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:InstallDir 'notes.txt') -Value 'mine'
+        Install-Mole 6>$null | Should -BeFalse
+        Get-Content -LiteralPath (Join-Path $script:InstallDir 'notes.txt') | Should -Be 'mine'
+        Test-Path -LiteralPath (Join-Path $script:InstallDir 'mole.ps1') | Should -BeFalse
     }
 }
 

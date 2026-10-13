@@ -272,7 +272,7 @@ if ($beforeResult.ExitCode -ne 0 -or -not $before) {
 
 Write-Host "Updating source from $(Mask-GitText -Text $remote) ($branch)..." -ForegroundColor Cyan
 
-$pullResult = Invoke-GitCommand -WorkingDirectory $windowsDir -Arguments @("pull", "--ff-only", "origin", $branch)
+$pullResult = Invoke-GitCommand -WorkingDirectory $windowsDir -Arguments @("pull", "--ff-only", "--tags", "origin", $branch)
 if ($pullResult.ExitCode -ne 0) {
     Write-GitFailure -Message "Failed to update source" -Result $pullResult
     exit 1

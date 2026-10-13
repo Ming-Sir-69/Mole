@@ -6,7 +6,7 @@ BeforeAll {
     $script:WindowsDir = Split-Path -Parent $PSScriptRoot
     $installScript = Join-Path $script:WindowsDir "install.ps1"
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($installScript, [ref]$null, [ref]$null)
-    foreach ($name in @("Get-NormalizedPath", "Test-ProtectedInstallRoot", "Get-MoleInstallEntries", "Get-MoleInstallNestedFiles", "Remove-MoleNestedFiles", "Test-MoleInstallDir", "Uninstall-Mole")) {
+    foreach ($name in @("Assert-InstallPhysicalPath", "Get-NormalizedPath", "Test-ProtectedInstallRoot", "Get-MoleInstallEntries", "Get-MoleInstallNestedFiles", "Remove-MoleNestedFiles", "Test-MoleInstallDir", "Uninstall-Mole")) {
         $definition = $ast.Find({
                 param($node)
                 $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -63,6 +63,44 @@ Describe "install.ps1 -Uninstall" {
         Test-Path (Join-Path $shared "mole.ps1") | Should -BeFalse
         Test-Path (Join-Path $shared "lib") | Should -BeFalse
         Test-Path (Join-Path $shared ".git") | Should -BeFalse
+    }
+
+    It "Keeps unrelated files inside common install directories and Git metadata" {
+        $shared = Join-Path $env:LOCALAPPDATA "Tools"
+        New-CliTree -Root $shared
+        Set-Content -LiteralPath (Join-Path $shared "bin\user-tool.exe") -Value "mine"
+        Set-Content -LiteralPath (Join-Path $shared "lib\user-library.txt") -Value "mine"
+        Set-Content -LiteralPath (Join-Path $shared ".git\config") -Value "user repository"
+        $InstallDir = $shared
+        Uninstall-Mole | Should -BeTrue
+        Get-Content -LiteralPath (Join-Path $shared "bin\user-tool.exe") | Should -Be "mine"
+        Get-Content -LiteralPath (Join-Path $shared "lib\user-library.txt") | Should -Be "mine"
+        Get-Content -LiteralPath (Join-Path $shared ".git\config") | Should -Be "user repository"
+        Test-Path -LiteralPath (Join-Path $shared "lib\core\base.ps1") | Should -BeFalse
+    }
+
+    It "Keeps a Git worktree pointer when removing Mole files" {
+        $own = Join-Path $env:LOCALAPPDATA "worktree"
+        New-CliTree -Root $own
+        [System.IO.Directory]::Delete((Join-Path $own ".git"))
+        Set-Content -LiteralPath (Join-Path $own ".git") -Value "gitdir: elsewhere"
+        $InstallDir = $own
+        Uninstall-Mole | Should -BeTrue
+        Get-Content -LiteralPath (Join-Path $own ".git") | Should -Be "gitdir: elsewhere"
+        Test-Path -LiteralPath (Join-Path $own "mole.ps1") | Should -BeFalse
+    }
+
+    It "Keeps a linked install directory and the files outside it" {
+        $outside = Join-Path $env:LOCALAPPDATA "outside"
+        New-CliTree -Root $outside
+        $link = Join-Path $env:LOCALAPPDATA "linked"
+        $null = New-Item -ItemType Junction -Path $link -Target $outside
+        try {
+            $InstallDir = $link
+            { Uninstall-Mole } | Should -Throw '*linked install path*'
+            Test-Path -LiteralPath (Join-Path $outside "mole.ps1") | Should -BeTrue
+        }
+        finally { [System.IO.Directory]::Delete($link) }
     }
 
     It "Removes the docs screenshots Mole ships and the folders they leave empty" {

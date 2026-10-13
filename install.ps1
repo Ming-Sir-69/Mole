@@ -173,6 +173,48 @@ function Test-ProtectedInstallRoot {
     return $false
 }
 
+# Installer copies and removals never follow a junction, including ancestors.
+function Assert-InstallPhysicalPath {
+    param([string]$Path)
+
+    $current = [System.IO.Path]::GetFullPath($Path)
+    while ($current) {
+        try {
+            $attributes = [System.IO.File]::GetAttributes($current)
+            if ($attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+                throw "Refusing linked install path: $current"
+            }
+        }
+        catch {
+            $errorObject = $_.Exception
+            while ($errorObject.InnerException) { $errorObject = $errorObject.InnerException }
+            if (($errorObject.HResult -band 0xffff) -notin @(2, 3)) { throw }
+        }
+        $parent = [System.IO.Path]::GetDirectoryName($current)
+        if ($parent -eq $current) { break }
+        $current = $parent
+    }
+}
+
+function Copy-MoleInstallEntry {
+    param([string]$Source, [string]$Destination)
+
+    Assert-InstallPhysicalPath -Path $Source
+    Assert-InstallPhysicalPath -Path $Destination
+    $item = Get-Item -LiteralPath $Source -Force -ErrorAction Stop
+    if ($item.PSIsContainer) {
+        if (-not (Test-Path -LiteralPath $Destination)) {
+            New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+        }
+        foreach ($child in @(Get-ChildItem -LiteralPath $Source -Force -ErrorAction Stop)) {
+            Copy-MoleInstallEntry -Source $child.FullName -Destination (Join-Path $Destination $child.Name)
+        }
+    }
+    else {
+        Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+    }
+}
+
 function Show-Banner {
     $c = $script:Colors
     Write-Host ""
@@ -375,7 +417,7 @@ function Ensure-OptionalTuiTools {
         }
     }
     if ($refreshSourceTools -and $failedTools.Count -gt 0) {
-        throw "Could not refresh $($failedTools -join ', ') from this source. Install Go and run 'mo update' again. Existing tools were kept."
+        throw "Could not refresh $($failedTools -join ', ') from this source. Install Go and rerun this installer. Existing tools were kept."
     }
 }
 
@@ -388,7 +430,14 @@ function Install-Mole {
         return $false
     }
 
+    Assert-InstallPhysicalPath -Path $InstallDir
     $inPlaceInstall = Test-SamePath -PathA $script:SourceDir -PathB $InstallDir
+    if (-not $inPlaceInstall -and (Test-Path -LiteralPath $InstallDir) -and
+        @(Get-ChildItem -LiteralPath $InstallDir -Force -ErrorAction Stop).Count -gt 0 -and
+        -not (Test-MoleInstallDir -Path $InstallDir)) {
+        Write-MoleError "Refusing to merge into a directory not owned by this install: $InstallDir"
+        return $false
+    }
 
     # Check if already installed
     if ((Test-Path $InstallDir) -and -not $Force -and -not $inPlaceInstall) {
@@ -423,6 +472,7 @@ function Install-Mole {
             # back to the compiled-in default and reports a stale version.
             "VERSION"
             "mole.ps1"
+            "install.ps1"
             "go.mod"
             "go.sum"
             "bin"
@@ -436,16 +486,7 @@ function Install-Mole {
 
             if (Test-Path $src) {
                 try {
-                    if ((Get-Item $src).PSIsContainer) {
-                        # For directories, remove destination first if exists to avoid nesting
-                        if (Test-Path $dst) {
-                            Remove-Item -Path $dst -Recurse -Force
-                        }
-                        Copy-Item -Path $src -Destination $dst -Recurse -Force
-                    }
-                    else {
-                        Copy-Item -Path $src -Destination $dst -Force
-                    }
+                    Copy-MoleInstallEntry -Source $src -Destination $dst
                     Write-Success "Copied: $item"
                 }
                 catch {
@@ -476,12 +517,14 @@ setlocal DisableDelayedExpansion
 (goto) 2>nul & "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -ExecutionPolicy Bypass -NoLogo -NoProfile -File "%~dp0mole.ps1" %*
 '@
     $batchPath = Join-Path $InstallDir "mole.cmd"
-    Set-Content -Path $batchPath -Value $batchContent -Encoding ASCII
+    Assert-InstallPhysicalPath -Path $batchPath
+    Set-Content -LiteralPath $batchPath -Value $batchContent -Encoding ASCII
     Write-Success "Created launcher: mole.cmd"
     
     # Also create 'mo' alias
     $moPath = Join-Path $InstallDir "mo.cmd"
-    Set-Content -Path $moPath -Value $batchContent -Encoding ASCII
+    Assert-InstallPhysicalPath -Path $moPath
+    Set-Content -LiteralPath $moPath -Value $batchContent -Encoding ASCII
     Write-Success "Created launcher: mo.cmd (short alias)"
 
     # Add to PATH if requested
@@ -541,12 +584,130 @@ function Get-MoleInstallEntries {
     )
 }
 
-# Files Mole ships inside a folder whose name is too common to remove whole:
-# a shared install folder may hold the user's own `docs`. Only these files go,
-# then their folders if nothing else is left in them.
+# Exact shipped files, not directory names, establish removal scope. Keep
+# unknown files in shared folders and Git metadata; prune only empty folders.
 function Get-MoleInstallNestedFiles {
     return @(
-        "docs\img\analyze-windows.png", "docs\img\mole-windows.png", "docs\img\status-windows.png"
+        ".github\FUNDING.yml"
+        ".github\ISSUE_TEMPLATE\bug_report.md"
+        ".github\ISSUE_TEMPLATE\config.yml"
+        ".github\ISSUE_TEMPLATE\feature_request.md"
+        ".github\dependabot.yml"
+        ".github\workflows\check.yml"
+        ".github\workflows\release-windows.yml"
+        ".github\workflows\test.yml"
+        ".github\workflows\update-contributors.yml"
+        "bin\analyze.exe"
+        "bin\analyze.ps1"
+        "bin\clean.ps1"
+        "bin\optimize.ps1"
+        "bin\purge.ps1"
+        "bin\remove.ps1"
+        "bin\status.exe"
+        "bin\status.ps1"
+        "bin\uninstall.ps1"
+        "bin\update.ps1"
+        "cmd\analyze\cleanable.go"
+        "cmd\analyze\cleanable_test.go"
+        "cmd\analyze\cli.go"
+        "cmd\analyze\constants.go"
+        "cmd\analyze\delete.go"
+        "cmd\analyze\format.go"
+        "cmd\analyze\format_test.go"
+        "cmd\analyze\heap.go"
+        "cmd\analyze\lifecycle_test.go"
+        "cmd\analyze\live_config.go"
+        "cmd\analyze\live_scan.go"
+        "cmd\analyze\main_other.go"
+        "cmd\analyze\main_windows.go"
+        "cmd\analyze\model.go"
+        "cmd\analyze\overview.go"
+        "cmd\analyze\platform_other.go"
+        "cmd\analyze\platform_windows.go"
+        "cmd\analyze\protect_windows.go"
+        "cmd\analyze\recycle_guard_windows.go"
+        "cmd\analyze\scanner.go"
+        "cmd\analyze\update.go"
+        "cmd\analyze\view.go"
+        "cmd\analyze\view_test.go"
+        "cmd\analyze\windows_test.go"
+        "cmd\mo\main.go"
+        "cmd\mo\main_test.go"
+        "cmd\status\collection.go"
+        "cmd\status\diagnosis.go"
+        "cmd\status\main.go"
+        "cmd\status\main_test.go"
+        "cmd\status\metrics.go"
+        "cmd\status\metrics_health.go"
+        "cmd\status\metrics_health_test.go"
+        "cmd\status\metrics_other.go"
+        "cmd\status\metrics_test.go"
+        "cmd\status\metrics_windows.go"
+        "cmd\status\platform_names.go"
+        "cmd\status\prefs.go"
+        "cmd\status\prefs_lock_other.go"
+        "cmd\status\prefs_lock_windows.go"
+        "cmd\status\prefs_test.go"
+        "cmd\status\process_watch.go"
+        "cmd\status\process_watch_test.go"
+        "cmd\status\proxy_privacy_test.go"
+        "cmd\status\testhelpers_test.go"
+        "cmd\status\units.go"
+        "cmd\status\usage_test.go"
+        "cmd\status\view.go"
+        "cmd\status\view_test.go"
+        "cmd\status\watch.go"
+        "cmd\status\watch_test.go"
+        "cmd\status\windows_logic_test.go"
+        "docs\development-pitfalls.md"
+        "docs\development-record.md"
+        "docs\img\analyze-windows.png"
+        "docs\img\mole-windows.png"
+        "docs\img\status-windows.png"
+        "lib\clean\apps.ps1"
+        "lib\clean\caches.ps1"
+        "lib\clean\dev.ps1"
+        "lib\clean\system.ps1"
+        "lib\clean\user.ps1"
+        "lib\core\base.ps1"
+        "lib\core\common.ps1"
+        "lib\core\file_ops.ps1"
+        "lib\core\log.ps1"
+        "lib\core\tui_binaries.ps1"
+        "lib\core\ui.ps1"
+        "lib\core\version.ps1"
+        "packaging\README.md"
+        "packaging\scoop\mole.json"
+        "packaging\winget\tw93.Mole.installer.yaml"
+        "packaging\winget\tw93.Mole.locale.en-US.yaml"
+        "packaging\winget\tw93.Mole.yaml"
+        "scripts\build-msi.ps1"
+        "scripts\build-release.ps1"
+        "scripts\build.ps1"
+        "scripts\mole-installer.wxs"
+        "scripts\new-release-zip.ps1"
+        "scripts\render-packaging.ps1"
+        "scripts\sign-release.ps1"
+        "scripts\test.ps1"
+        "scripts\write-checksums.ps1"
+        "tests\Clean.Tests.ps1"
+        "tests\CleanupBoundary.Tests.ps1"
+        "tests\CleanupTargets.Tests.ps1"
+        "tests\Commands.Tests.ps1"
+        "tests\Core.Tests.ps1"
+        "tests\DryRun.Tests.ps1"
+        "tests\DryRunEnvironment.Tests.ps1"
+        "tests\GitProxy.Tests.ps1"
+        "tests\Install.Tests.ps1"
+        "tests\InstallLifecycle.Tests.ps1"
+        "tests\Optimize.Tests.ps1"
+        "tests\Protection.Tests.ps1"
+        "tests\PurgeBoundary.Tests.ps1"
+        "tests\Recycle.Tests.ps1"
+        "tests\Release.Tests.ps1"
+        "tests\Router.Tests.ps1"
+        "tests\TestRunner.Tests.ps1"
+        "tests\Uninstall.Tests.ps1"
     )
 }
 
@@ -554,9 +715,11 @@ function Remove-MoleNestedFiles {
     param([string]$InstallPath, [string]$Root)
 
     $files = @(Get-MoleInstallNestedFiles | Where-Object { $_.StartsWith("$Root\", [StringComparison]::OrdinalIgnoreCase) })
-    $folders = @()
+    $folders = @($Root)
+    Assert-InstallPhysicalPath -Path (Join-Path $InstallPath $Root)
     foreach ($file in $files) {
         $path = Join-Path $InstallPath $file
+        Assert-InstallPhysicalPath -Path $path
         if (Test-Path -LiteralPath $path -PathType Leaf) {
             Remove-Item -LiteralPath $path -Force -ErrorAction Stop
         }
@@ -607,8 +770,10 @@ function Uninstall-Mole {
         return $false
     }
 
+    Assert-InstallPhysicalPath -Path $installPath
+
     # Remove from PATH
-    Remove-FromUserPath -Directory $installPath
+    $null = Remove-FromUserPath -Directory $installPath
 
     # Remove shortcut
     $null = Remove-StartMenuShortcut -InstallDir $installPath
@@ -619,7 +784,11 @@ function Uninstall-Mole {
     $nestedRoots = @(Get-MoleInstallNestedFiles | ForEach-Object { ($_ -split '\\')[0] } | Select-Object -Unique)
     $kept = @()
     foreach ($entry in @(Get-ChildItem -LiteralPath $installPath -Force)) {
-        if ($nestedRoots -contains $entry.Name) {
+        if ($entry.Name -eq ".git" -and -not $entry.PSIsContainer) {
+            $kept += $entry.Name
+            continue
+        }
+        if ($nestedRoots -contains $entry.Name -or ($entry.PSIsContainer -and $known -contains $entry.Name)) {
             try {
                 Remove-MoleNestedFiles -InstallPath $installPath -Root $entry.Name
             }
@@ -635,7 +804,8 @@ function Uninstall-Mole {
             continue
         }
         try {
-            Remove-Item -LiteralPath $entry.FullName -Recurse -Force -ErrorAction Stop
+            Assert-InstallPhysicalPath -Path $entry.FullName
+            Remove-Item -LiteralPath $entry.FullName -Force -ErrorAction Stop
         }
         catch {
             Write-MoleError "Failed to remove $($entry.FullName): $_"
