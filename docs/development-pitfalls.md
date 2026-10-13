@@ -28,7 +28,7 @@ For Windows VM tests launched as SYSTEM, create a private fixture profile before
 
 When copying a source archive from macOS, exclude AppleDouble `._*` files and extended attributes at export. Those metadata files can be discovered as tests or install entries on Windows. Inspect the extracted inventory before interpreting a new parse or discovery failure as a product bug. Keep machine-specific runners and temporary paths outside tracked documentation.
 
-On physical Windows, keep the isolated temporary root short: fixture GUIDs plus realistic application paths can exceed Windows PowerShell 5.1 path limits before the test reaches production code. File symbolic-link fixtures separately require the creation privilege; do not count a fixture setup refusal as a passed protection test. Record it separately from the privileged VM/CI run.
+On physical Windows, keep the isolated temporary root short: fixture GUIDs plus realistic application paths can exceed Windows PowerShell 5.1 path limits before the test reaches production code. File symbolic-link fixtures separately require the creation privilege; do not count a fixture setup refusal as a passed protection test. Record it separately from the privileged VM/CI run. Keep Go deletion fixtures out of the protected Public tree as well: an intended positive fixture there is correctly refused before its target assertion. Never weaken production policy to make that fixture pass.
 
 ## Asynchronous Analyze actions
 
