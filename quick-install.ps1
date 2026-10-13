@@ -233,12 +233,7 @@ try {
         throw "Installer exited with code $LASTEXITCODE"
     }
 
-    Write-Host ""
-    Write-Success "Installation complete!"
-    Write-Host ""
-    Write-Host "  Run $($Colors.Green)mole$($Colors.NC) to get started"
-    Write-Host "  Run $($Colors.Green)mo update$($Colors.NC) to pull the latest windows source later"
-    Write-Host ""
+    # install.ps1 already printed the result, location and next commands.
 
 } catch {
     Write-ErrorMsg "Installation failed: $_"
