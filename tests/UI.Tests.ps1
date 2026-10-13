@@ -1,4 +1,4 @@
-BeforeAll {
+﻿BeforeAll {
     . "$PSScriptRoot\..\lib\core\ui.ps1"
     if (-not (Get-Command Test-MoleInteractiveOutput -ErrorAction SilentlyContinue)) {
         function Test-MoleInteractiveOutput { $false }
@@ -72,5 +72,35 @@ Describe 'Background loading lifecycle' {
             [Console]::SetOut($original)
             $capture.Dispose()
         }
+    }
+}
+
+Describe 'Display-cell list columns' {
+    It 'aligns ASCII, Chinese, mixed and truncated names at one right edge' {
+        Mock Get-TerminalSize { @{ Width = 60; Height = 24 } }
+        foreach ($name in @('Clash Party', '微信输入法', 'UU远程', ('中文应用' * 20), 'éditor')) {
+            $row = Format-SizeListEntry -Name $name -Size '443.4MB'
+            (Get-TerminalTextWidth $row) | Should -Be 53
+            $row.EndsWith('443.4MB') | Should -BeTrue
+        }
+        (Format-SizeListEntry -Name ('中文应用' * 20) -Size '1MB') | Should -Match '\.\.\.'
+    }
+
+    It 'fits both list callers in a narrow terminal including a suffix' {
+        Mock Get-TerminalSize { @{ Width = 40; Height = 24 } }
+        $row = Format-SizeListEntry -Name ('中文项目' * 20) -Size '12MB' -Suffix ' (3 items)' -NameWidth 32
+        (Get-TerminalTextWidth $row) | Should -Be 33
+    }
+
+    It 'settles interactive results once without delaying redirected output' {
+        Mock Write-Host {}
+        Mock Stop-Spinner {}
+        Mock Start-Sleep {}
+        Mock Test-MoleInteractiveOutput { $false }
+        Show-SummaryBlock -Heading 'Done'
+        Should -Invoke Start-Sleep -Times 0 -Exactly
+        Mock Test-MoleInteractiveOutput { $true }
+        Show-SummaryBlock -Heading 'Done'
+        Should -Invoke Start-Sleep -Times 1 -Exactly -ParameterFilter { $Milliseconds -eq 180 }
     }
 }

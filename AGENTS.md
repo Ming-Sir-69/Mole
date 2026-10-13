@@ -32,6 +32,8 @@ Read [development pitfalls](docs/development-pitfalls.md) only when working on t
 
 [SECURITY_AUDIT.md](SECURITY_AUDIT.md) describes the Windows CLI safety model and verification limits. Update affected claims when deletion, ownership, privilege or distribution boundaries change. Keep CI, VM, physical-machine and signed-release evidence separate in the development record; an observed remote desktop or attempted command is not a completed hardware test. Machine connection details and raw diagnostics stay out of public documents.
 
+Interactive size lists use `Format-SizeListEntry` for display-cell truncation and padding; .NET format widths and Windows ConsoleHost's width helper do not reliably count CJK cells. Store app display sizes use their read-only measurement, never deletion snapshots or elevated access. Neither a display measurement nor its cache grants deletion authority. Regression and ordinary-user evidence are in the development record.
+
 ## Commands
 
 ```powershell

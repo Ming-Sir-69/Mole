@@ -51,3 +51,9 @@ Release-source equivalence needs the release tag locally. A shallow branch clone
 Protecting a child path is insufficient when another entry point moves its whole parent. Analyze must inspect protected descendants at review and at its final recycle boundary, while uninstall additionally verifies surviving installed-app owners from a complete inventory rather than its filtered menu. Keep unknown ownership or incomplete traversal read-only.
 
 Owner pruning may retain most of its store. A preview lists the root but cannot call its full size reclaimable; a successful command can still release zero measurable bytes. Preserve that distinction through summary rendering. Empty PowerShell pipelines can produce no `Measure-Object` result under strict mode, so accumulating file lengths must handle an empty set explicitly. Native nonzero exit codes also do not throw automatically in Windows PowerShell 5.1: check `LASTEXITCODE` before counting success.
+
+## Terminal cells and read-only Store sizes
+
+Windows ConsoleHost's `LengthInBufferCells` can count a Chinese character as one cell, just like .NET format-field widths. Neither is an oracle for CJK alignment. Truncate and pad app/project names through `Format-SizeListEntry`; test the rendered menu with an independent ASCII/CJK cell count, not only the formatter. Keep size columns fixed while shrinking the name budget for narrow terminals.
+
+A standard user can enumerate files inside an installed Store package while lacking `FILE_READ_ATTRIBUTES` on its WindowsApps ancestor. The deletion snapshot therefore returns unknown even when display sizing is possible. Use the bounded, no-follow, display-only `Get-AppxInstallSizeKB` for that inventory; never reuse its result as deletion authority or relax the cleanup snapshot. An incomplete or failed measurement remains unknown. Change the app-cache schema when correcting persisted size computation.

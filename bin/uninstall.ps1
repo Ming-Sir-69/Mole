@@ -35,8 +35,8 @@ $libDir = Join-Path (Split-Path -Parent $scriptDir) "lib"
 # ============================================================================
 
 $script:CacheDir = "$env:USERPROFILE\.cache\mole"
-# v2: entries carry their registry key, sizes are outlier-checked and duplicates merged.
-$script:AppCacheFile = "$script:CacheDir\app_scan_cache_v2.json"
+# v3: Store display sizing does not require deletion authority over ancestors.
+$script:AppCacheFile = "$script:CacheDir\app_scan_cache_v3.json"
 $script:CacheTTLHours = 24
 
 # A vendor EstimatedSize above this is measured against the install folder (#1717).
@@ -616,6 +616,35 @@ function Test-UninstallEntryGone {
 # Application Discovery
 # ============================================================================
 
+# Display-only package measurement. Do not use cleanup snapshots here: a user
+# can read a package without FILE_READ_ATTRIBUTES on the WindowsApps parent.
+# Nothing from this walk authorizes deletion or changes filesystem permissions.
+function Get-AppxInstallSizeKB {
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    try {
+        $root = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+        if (-not $root.PSIsContainer -or ($root.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $null }
+        $pending = New-Object 'System.Collections.Generic.Stack[string]'
+        $pending.Push($root.FullName)
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        $bytes = 0L
+        while ($pending.Count -gt 0) {
+            if ($timer.Elapsed.TotalSeconds -ge 15) { return $null }
+            $directory = Get-Item -LiteralPath $pending.Pop() -Force -ErrorAction Stop
+            if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $null }
+            foreach ($item in @(Get-ChildItem -LiteralPath $directory.FullName -Force -ErrorAction Stop)) {
+                if ($timer.Elapsed.TotalSeconds -ge 15) { return $null }
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { return $null }
+                if ($item.PSIsContainer) { $pending.Push($item.FullName) }
+                else { $bytes += $item.Length }
+            }
+        }
+        return [long][Math]::Ceiling($bytes / 1024)
+    }
+    catch { return $null }
+}
+
 function Get-InstalledApplications {
     <#
     .SYNOPSIS
@@ -702,10 +731,8 @@ function Get-InstalledApplications {
             catch { }
 
             # Calculate size
-            $sizeKB = 0
-            if ($uwp.InstallLocation -and (Test-Path $uwp.InstallLocation)) {
-                $sizeKB = Get-PathSizeKB -Path $uwp.InstallLocation
-            }
+            $measuredKB = Get-AppxInstallSizeKB -Path $uwp.InstallLocation
+            $sizeKB = if ($null -eq $measuredKB) { 0L } else { $measuredKB }
 
             $apps += [PSCustomObject]@{
                 Name = $name
@@ -713,7 +740,7 @@ function Get-InstalledApplications {
                 Version = $uwp.Version
                 SizeKB = $sizeKB
                 SizeHuman = Format-ByteSize -Bytes ($sizeKB * 1024)
-                SizeChecked = ($sizeKB -gt 0)
+                SizeChecked = ($null -ne $measuredKB)
                 InstallLocation = $uwp.InstallLocation
                 UninstallString = $null
                 QuietUninstallString = $null
@@ -808,18 +835,11 @@ function Show-AppSelectionMenu {
                     Write-Host "$esc[7m" -NoNewline  # Reverse video
                 }
 
-                # App info
-                $name = $app.Name
-                if ($name.Length -gt 40) {
-                    $name = $name.Substring(0, 37) + "..."
-                }
-
+                # App info uses terminal cells for both truncation and padding.
                 $size = $app.SizeHuman
-                if (-not $size -or $size -eq "0B") {
-                    $size = "N/A"
-                }
-
-                Write-Host ("  {0} {1,-42} {2,10}" -f $checkbox, $name, $size) -NoNewline
+                if (-not $size -or ($size -eq '0B' -and -not (Get-MoleProperty $app 'SizeChecked'))) { $size = 'Unknown' }
+                $entry = Format-SizeListEntry -Name $app.Name -Size $size
+                Write-Host "  $checkbox $entry" -NoNewline
 
                 if ($isCurrent) {
                     Write-Host "$esc[0m"  # Reset

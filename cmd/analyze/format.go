@@ -114,7 +114,8 @@ func humanizeBytes(size int64) string {
 func formatPercent(percent float64, known bool) string {
 	const width = 6
 	if !known {
-		return "  --  "
+		// No percentage is meaningful until the denominator is complete.
+		return strings.Repeat(" ", width)
 	}
 
 	label := fmt.Sprintf("%.1f%%", percent)

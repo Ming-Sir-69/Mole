@@ -1,4 +1,4 @@
-# Mole Windows - uninstall regression tests
+﻿# Mole Windows - uninstall regression tests
 
 BeforeAll {
     $script:WindowsDir = Split-Path -Parent $PSScriptRoot
@@ -683,5 +683,65 @@ Describe 'Complete install owner probes' {
         $result = Get-MoleInstallOwners
         $result.Complete | Should -BeTrue
         @($result.Owners).Count | Should -Be 0
+    }
+}
+
+Describe 'Store display sizes without deletion authority' {
+    It 'measures readable packages when ancestor deletion identity is unavailable' {
+        $folder = New-TestFolder 'read-only-package'
+        Mock Get-MolePathSnapshot { $null }
+        (Get-AppxInstallSizeKB -Path $folder) | Should -BeGreaterThan 0
+        Should -Invoke Get-MolePathSnapshot -Times 0 -Exactly
+    }
+
+    It 'retains unknown size for missing packages and never follows a junction' {
+        $target = New-TestFolder 'size-target'
+        $link = Join-Path $TestDrive 'size-link'
+        New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+        (Get-AppxInstallSizeKB -Path $link) | Should -BeNullOrEmpty
+        (Get-AppxInstallSizeKB -Path (Join-Path $TestDrive 'missing-size')) | Should -BeNullOrEmpty
+    }
+
+    It 'does not turn a failed child enumeration into a complete size' {
+        $folder = New-TestFolder 'unreadable-package'
+        Mock Get-ChildItem { throw 'Access denied' } -ParameterFilter { $LiteralPath -eq $folder }
+        (Get-AppxInstallSizeKB -Path $folder) | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Uninstall rendered regression' {
+    It 'keeps Chinese and ASCII menu sizes on the same display column' {
+        Mock Clear-Host {}
+        Mock Get-TerminalSize { @{Width=80;Height=24} }
+        Mock Read-MenuKey { [pscustomobject]@{Key='Q'; KeyChar='q'} }
+        $script:RenderedRows = @()
+        Mock Write-Host { if ("$Object" -match '^  \[ \] ') { $script:RenderedRows += "$Object" } }
+        $null = Show-AppSelectionMenu -Apps @(
+            [pscustomobject]@{Name='Clash Party';SizeHuman='683.5MB'},
+            [pscustomobject]@{Name='微信输入法';SizeHuman='443.4MB'},
+            [pscustomobject]@{Name=('中文应用' * 20);SizeHuman='1MB'})
+        $script:RenderedRows.Count | Should -Be 3
+        foreach ($row in $script:RenderedRows) {
+            # Independent oracle: these fixtures contain ASCII and BMP CJK only.
+            ($row.Length + [regex]::Matches($row,'[\u4e00-\u9fff]').Count) | Should -Be 59
+        }
+    }
+
+    It 'publishes a measured Store size without ancestor deletion access' {
+        $folder = New-TestFolder 'store-inventory'
+        Mock Write-Info {}
+        Mock Write-Progress {}
+        Mock Get-ItemProperty { @() } -ParameterFilter { "$Path" -like 'HK*' }
+        Mock Get-MolePathSnapshot { $null }
+        Mock Get-AppxPackageManifest { $null }
+        Mock Get-AppxPackage {
+            [pscustomobject]@{Name='Contoso.Notes';PackageFullName='Contoso.Notes_1.0_x64__abc';
+                Publisher='CN=Test';Version='1.0';IsFramework=$false;IsResourcePackage=$false;
+                IsBundle=$false;SignatureKind='Store';InstallLocation=$folder}
+        }
+        $apps = @(Get-InstalledApplications -ForceRescan)
+        $apps.Count | Should -Be 1
+        $apps[0].SizeKB | Should -BeGreaterThan 0
+        $apps[0].SizeChecked | Should -BeTrue
     }
 }

@@ -123,7 +123,7 @@ func TestFormatPercentKeepsFixedWidth(t *testing.T) {
 		{"threshold", 0.1, true, "  0.1%"},
 		{"tiny nonzero", 0.046, true, "< 0.1%"},
 		{"zero", 0, true, "  0.0%"},
-		{"pending", 0, false, "  --  "},
+		{"pending", 0, false, "      "},
 	}
 
 	for _, tt := range tests {

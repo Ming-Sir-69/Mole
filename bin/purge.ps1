@@ -476,14 +476,9 @@ function Show-ProjectSelectionMenu {
                     Write-Host "$esc[7m" -NoNewline
                 }
 
-                $name = $project.Name
-                if ($name.Length -gt 30) {
-                    $name = $name.Substring(0, 27) + "..."
-                }
-
                 $artifactCount = if ($null -eq $project.Artifacts) { 0 } else { @($project.Artifacts).Count }
-
-                Write-Host ("  {0} {1,-32} {2,10} ({3} items)" -f $checkbox, $name, $project.TotalSizeHuman, $artifactCount) -NoNewline
+                $entry = Format-SizeListEntry -Name $project.Name -Size $project.TotalSizeHuman -Suffix " ($artifactCount items)" -NameWidth 32
+                Write-Host "  $checkbox $entry" -NoNewline
 
                 if ($isCurrent) {
                     Write-Host "$esc[0m"
