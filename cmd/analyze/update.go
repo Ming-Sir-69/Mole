@@ -81,8 +81,16 @@ func (m model) Init() tea.Cmd {
 	}
 }
 
-func (m model) scanCmd(path string) tea.Cmd {
-	return startLiveScanCmd(path, m.filesScanned, m.dirsScanned, m.bytesScanned, m.currentPath)
+func (m *model) scanCmd(path string) tea.Cmd {
+	m.cancelLiveScan()
+	id := nextLiveScanID.Add(1)
+	ctx, cancel := context.WithCancel(context.Background())
+	publication := newScanPublication(ctx, cancel)
+	// Register before dispatch so refresh and navigation can invalidate even
+	// a command whose initial directory enumeration has not returned yet.
+	m.liveScanID = id
+	m.liveScanCancel = publication.cancel
+	return startLiveScanCmd(id, path, publication, m.filesScanned, m.dirsScanned, m.bytesScanned, m.currentPath)
 }
 
 func tickCmd() tea.Cmd {
@@ -331,14 +339,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case liveScanStartMsg:
-		if msg.path != m.path {
+		if msg.id != m.liveScanID || msg.path != m.path {
 			if msg.cancel != nil {
 				msg.cancel()
 			}
 			return m, nil
 		}
-		m.cancelLiveScan()
 		if msg.err != nil {
+			m.cancelLiveScan()
 			m.scanning = false
 			m.status = fmt.Sprintf("Scan failed: %v", msg.err)
 			return m, nil
@@ -460,6 +468,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The busy view hides navigation and confirmation. Do not let queued keys
+	// move its selection or dispatch another deletion behind that view.
+	if m.deleting {
+		switch msg.String() {
+		case "q", "Q", "ctrl+c":
+			return m, tea.Quit
+		default:
+			return m, nil
+		}
+	}
 	// Delete confirm flow.
 	if m.deleteConfirm {
 		switch msg.String() {
