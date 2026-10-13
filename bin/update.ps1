@@ -210,11 +210,6 @@ if ($DebugMode) {
     $env:MOLE_DEBUG = "1"
 }
 
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Write-Host "Git is not installed. Install Git to use 'mo update'." -ForegroundColor Red
-    exit 1
-}
-
 if (-not (Test-Path $installScript)) {
     Write-Host "Installer not found at: $installScript" -ForegroundColor Red
     exit 1
@@ -230,6 +225,11 @@ if (-not (Test-Path $gitDir)) {
     }
     Write-Host "This installation is not a git-based source install." -ForegroundColor Red
     Write-Host "Reinstall with quick-install to enable 'mo update'." -ForegroundColor Yellow
+    exit 1
+}
+
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Host "Git is not installed. Install Git to use 'mo update'." -ForegroundColor Red
     exit 1
 }
 

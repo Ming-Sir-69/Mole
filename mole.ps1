@@ -292,13 +292,34 @@ function Main {
     # Initialize
     Initialize-Mole
 
-    # Handle switches passed as strings (when called via batch file with quoted args)
-    # e.g., mole '-ShowHelp' becomes $Command = "-ShowHelp" instead of $ShowHelp = $true
+    # Native -File and the executable launcher bind switches differently.
+    # Normalize both forms before routing, keeping command options on the child.
     $effectiveShowHelp = $ShowHelp
     $effectiveVersion = $Version
     $effectiveCommand = $Command
+    $effectiveArguments = @()
+    if ($null -ne $CommandArgs) { $effectiveArguments = @($CommandArgs) }
+    if (-not $effectiveCommand -and $effectiveArguments.Count -gt 0) {
+        $effectiveCommand = $effectiveArguments[0]
+        if ($effectiveArguments.Count -gt 1) {
+            $effectiveArguments = @($effectiveArguments[1..($effectiveArguments.Count - 1)])
+        }
+        else {
+            $effectiveArguments = @()
+        }
+    }
+    if ($effectiveCommand) {
+        if ($effectiveShowHelp) {
+            $effectiveArguments += "--help"
+            $effectiveShowHelp = $false
+        }
+        if ($effectiveVersion) {
+            $effectiveArguments += "--version"
+            $effectiveVersion = $false
+        }
+    }
 
-    if ($Command -match '^-{1,2}(.+)$') {
+    if ($effectiveCommand -match '^-{1,2}(.+)$') {
         $switchName = $Matches[1].ToLower()
         switch ($switchName) {
             'showhelp' { $effectiveShowHelp = $true; $effectiveCommand = $null }
@@ -326,7 +347,7 @@ function Main {
         $validCommands = @("clean", "uninstall", "analyze", "status", "optimize", "update", "remove", "purge")
 
         if ($effectiveCommand -in $validCommands) {
-            Invoke-MoleCommand -CommandName $effectiveCommand -Arguments $CommandArgs
+            Invoke-MoleCommand -CommandName $effectiveCommand -Arguments $effectiveArguments
         }
         else {
             Write-MoleError "Unknown command: $effectiveCommand"

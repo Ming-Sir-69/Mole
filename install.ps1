@@ -354,11 +354,13 @@ function Ensure-OptionalTuiTools {
     )
 
     $version = Get-MoleVersionFromScriptFile -WindowsDir $RootDir
+    $refreshSourceTools = Test-Path -LiteralPath (Join-Path $RootDir ".git")
+    $failedTools = @()
 
     foreach ($tool in $tools) {
         $destination = Join-Path $RootDir $tool.Output
         try {
-            $binPath = Ensure-TuiBinary -Name $tool.Name -WindowsDir $RootDir -DestinationPath $destination -SourcePath $tool.Source -Version $version
+            $binPath = Ensure-TuiBinary -Name $tool.Name -WindowsDir $RootDir -DestinationPath $destination -SourcePath $tool.Source -Version $version -Refresh:$refreshSourceTools
         }
         catch {
             Write-MoleWarning "Skipping $($tool.Name).exe after a non-fatal setup error: $_"
@@ -369,7 +371,11 @@ function Ensure-OptionalTuiTools {
         }
         else {
             Write-MoleWarning "Could not prepare $($tool.Name).exe. Install Go, or run mo update later to fetch the release build."
+            $failedTools += $tool.Name
         }
+    }
+    if ($refreshSourceTools -and $failedTools.Count -gt 0) {
+        throw "Could not refresh $($failedTools -join ', ') from this source. Install Go and run 'mo update' again. Existing tools were kept."
     }
 }
 
@@ -462,27 +468,13 @@ function Install-Mole {
     Write-Host ""
     Ensure-OptionalTuiTools -RootDir $InstallDir
 
-    # Create launcher batch file for easier access
-    # Note: Store %~dp0 immediately to avoid issues with delayed expansion in the parse loop
-    $batchContent = @"
+    # Pass native arguments to -File, never interpolate them into PowerShell
+    # source. Expand the invocation before ending the self-removing batch.
+    $batchContent = @'
 @echo off
-setlocal EnableDelayedExpansion
-
-rem Store the script directory immediately before any shifting
-set "MOLE_DIR=%~dp0"
-
-set "ARGS="
-:parse
-if "%~1"=="" goto run
-set "ARGS=!ARGS! '%~1'"
-shift
-goto parse
-:run
-rem mo remove deletes this file while it runs. (goto) ends the batch context
-rem first, so cmd never reads the deleted file again; %%-variables expand when
-rem the line is parsed, before the context ends. The exit code passes through.
-(goto) 2>nul & powershell.exe -ExecutionPolicy Bypass -NoLogo -NoProfile -Command "& '%MOLE_DIR%mole.ps1' %ARGS%; exit `$LASTEXITCODE"
-"@
+setlocal DisableDelayedExpansion
+(goto) 2>nul & "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -ExecutionPolicy Bypass -NoLogo -NoProfile -File "%~dp0mole.ps1" %*
+'@
     $batchPath = Join-Path $InstallDir "mole.cmd"
     Set-Content -Path $batchPath -Value $batchContent -Encoding ASCII
     Write-Success "Created launcher: mole.cmd"

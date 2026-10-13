@@ -155,51 +155,71 @@ function Build-TuiBinary {
 
     Write-Host "Building $Name tool..." -ForegroundColor Cyan
 
-    $stdoutPath = Join-Path $env:TEMP "mole-$Name-build.stdout.log"
-    $stderrPath = Join-Path $env:TEMP "mole-$Name-build.stderr.log"
-
-    foreach ($path in @($stdoutPath, $stderrPath)) {
-        if (Test-Path $path) {
-            Remove-Item $path -Force -ErrorAction SilentlyContinue
-        }
-    }
-
-    Push-Location $WindowsDir
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+    # Build beside the destination so a failed build never replaces its old copy.
+    $buildPath = Join-Path $binDir (".mole-$Name-" + [guid]::NewGuid().ToString("N") + ".exe")
     try {
-        $process = Start-Process -FilePath "go" `
-            -ArgumentList @("build", "-o", $DestinationPath, $SourcePath) `
-            -NoNewWindow `
-            -Wait `
-            -PassThru `
-            -RedirectStandardOutput $stdoutPath `
-            -RedirectStandardError $stderrPath
+        Push-Location $WindowsDir
+        try {
+            $process = Start-Process -FilePath "go" `
+                -ArgumentList @("build", "-o", ('"{0}"' -f $buildPath), ('"{0}"' -f $SourcePath)) `
+                -NoNewWindow -Wait -PassThru `
+                -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        }
+        finally {
+            Pop-Location
+        }
+        if ($process.ExitCode -ne 0) {
+            $details = @([string](Get-Content -LiteralPath $stdoutPath -Raw), [string](Get-Content -LiteralPath $stderrPath -Raw)) -join [Environment]::NewLine
+            Write-Host "Failed to build $Name tool (exit $($process.ExitCode)): $($details.Trim())" -ForegroundColor Red
+            return $false
+        }
+        Move-Item -LiteralPath $buildPath -Destination $DestinationPath -Force -ErrorAction Stop
+        return $true
     }
     catch {
-        Write-Host "Failed to start go build for $Name tool: $_" -ForegroundColor Red
+        Write-Host "Failed to build $Name tool: $_" -ForegroundColor Red
         return $false
     }
     finally {
-        Pop-Location
-    }
-
-    $buildOutput = @()
-    foreach ($path in @($stdoutPath, $stderrPath)) {
-        if (Test-Path $path) {
-            $content = (Get-Content $path -Raw).Trim()
-            if ($content) {
-                $buildOutput += $content
+        foreach ($path in @($stdoutPath, $stderrPath, $buildPath)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
             }
-            Remove-Item $path -Force -ErrorAction SilentlyContinue
         }
     }
+}
 
-    if ($process.ExitCode -ne 0) {
-        $message = if ($buildOutput.Count -gt 0) { $buildOutput -join [Environment]::NewLine } else { "go build exited with code $($process.ExitCode)" }
-        Write-Host "Failed to build $Name tool: $message" -ForegroundColor Red
+# A source refresh may use a release binary only when its source is unchanged.
+# Unknown or locally edited sources require a build, not an older tagged binary.
+function Test-TuiSourceMatchesRelease {
+    param([string]$WindowsDir, [string]$Name, [string]$Version)
+
+    if (-not (Test-Path -LiteralPath (Join-Path $WindowsDir ".git")) -or
+        -not (Get-Command git -ErrorAction SilentlyContinue)) {
         return $false
     }
-
-    return $true
+    # Caller Git overrides can redirect the worktree or index. Without a
+    # trustworthy source comparison, build locally instead of claiming parity.
+    foreach ($overrideName in @("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CONFIG", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS")) {
+        if ([Environment]::GetEnvironmentVariable($overrideName)) { return $false }
+    }
+    $savedPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $paths = @("cmd/$Name", "go.mod", "go.sum")
+        $dirty = & git -C $WindowsDir -c core.fsmonitor=false status --porcelain --untracked-files=all -- @paths 2>$null
+        if ($LASTEXITCODE -ne 0 -or $dirty) { return $false }
+        foreach ($tag in @("V$Version-windows", "v$Version-windows")) {
+            & git -C $WindowsDir -c core.fsmonitor=false diff --quiet --no-ext-diff --no-textconv $tag -- @paths 2>$null
+            if ($LASTEXITCODE -eq 0) { return $true }
+        }
+        return $false
+    }
+    finally {
+        $ErrorActionPreference = $savedPreference
+    }
 }
 
 function Ensure-TuiBinary {
@@ -208,11 +228,12 @@ function Ensure-TuiBinary {
         [string]$WindowsDir,
         [string]$DestinationPath,
         [string]$SourcePath,
-        [string]$Version
+        [string]$Version,
+        [switch]$Refresh
     )
 
     $existingBin = Resolve-TuiBinaryPath -WindowsDir $WindowsDir -Name $Name
-    if ($existingBin) {
+    if ($existingBin -and -not $Refresh) {
         return $existingBin
     }
 
@@ -222,7 +243,9 @@ function Ensure-TuiBinary {
 
     $restoreResult = "unavailable"
     try {
-        $restoreResult = Restore-PrebuiltTuiBinary -Name $Name -WindowsDir $WindowsDir -DestinationPath $DestinationPath -Version $Version
+        if (-not $Refresh -or (Test-TuiSourceMatchesRelease -WindowsDir $WindowsDir -Name $Name -Version $Version)) {
+            $restoreResult = Restore-PrebuiltTuiBinary -Name $Name -WindowsDir $WindowsDir -DestinationPath $DestinationPath -Version $Version
+        }
     }
     catch {
         Write-Host "Failed to restore prebuilt $Name tool: $_" -ForegroundColor Yellow
