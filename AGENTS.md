@@ -24,6 +24,12 @@ Changes that stay out:
 
 A feature request asking for one of those gets a short "not planned for the CLI" answer, not a port. Fixes found here, including community PRs, are an input for the paid app; record them in its sync ledger rather than here.
 
+## Development continuity
+
+Start resumed Windows CLI work with [the development record](docs/development-record.md), then verify the current branch, worktree, remote head and relevant CI. Its dated entries are evidence of past delivery, not current release status or authorization. Record completed batches with their scope, commits, verification and remaining delivery boundary; update an existing batch when new evidence arrives instead of starting a parallel ledger. Keep temporary runners, machine paths and raw logs out of this record.
+
+Read [development pitfalls](docs/development-pitfalls.md) only when working on the matching PowerShell, launcher, Git, asynchronous TUI or Windows test boundary. Current policy stays in this guide; the reference explains failure mechanisms and points to regression tests. Add only a verified, non-obvious lesson or rejected alternative, preferably under an existing topic. Do not copy every small fix or successful check into permanent rules.
+
 ## Commands
 
 ```powershell
