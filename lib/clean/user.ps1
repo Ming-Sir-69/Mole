@@ -121,37 +121,6 @@ function Clear-RecycleBin {
 }
 
 # ============================================================================
-# Thumbnail Cache Cleanup
-# ============================================================================
-
-function Clear-ThumbnailCache {
-    <#
-    .SYNOPSIS
-        Clean Windows thumbnail cache
-    #>
-    
-    $thumbCachePath = "$env:LOCALAPPDATA\Microsoft\Windows\Explorer"
-    
-    if (-not (Test-Path $thumbCachePath)) {
-        return
-    }
-    
-    # Thumbnail cache files (thumbcache_*.db)
-    $thumbFiles = Get-ChildItem -Path $thumbCachePath -Filter "thumbcache_*.db" -File -ErrorAction SilentlyContinue
-    
-    if ($thumbFiles) {
-        $paths = $thumbFiles | ForEach-Object { $_.FullName }
-        Remove-SafeItems -Paths $paths -Description "Thumbnail cache"
-    }
-    
-    # Icon cache
-    $iconCache = "$env:LOCALAPPDATA\IconCache.db"
-    if (Test-Path $iconCache) {
-        $null = Remove-SafeItem -Path $iconCache -Description "Icon cache"
-    }
-}
-
-# ============================================================================
 # Windows Error Reports Cleanup
 # ============================================================================
 
@@ -302,7 +271,6 @@ function Invoke-UserCleanup {
     
     # Always clean these
     Clear-UserTempFiles -DaysOld $TempDaysOld
-    Clear-ThumbnailCache
     Clear-ErrorReports -DaysOld 7
     Clear-UserLogs -DaysOld $LogDaysOld
     Clear-Prefetch -DaysOld 14

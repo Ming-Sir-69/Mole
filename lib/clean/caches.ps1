@@ -224,12 +224,10 @@ function Clear-AppCaches {
         }
     }
     
-    # Teams
+    # Teams: keep blob storage and temporary app state; only known cache leaves.
     $teamsCachePaths = @(
         "$env:APPDATA\Microsoft\Teams\Cache"
-        "$env:APPDATA\Microsoft\Teams\blob_storage"
         "$env:APPDATA\Microsoft\Teams\GPUCache"
-        "$env:APPDATA\Microsoft\Teams\tmp"
     )
     foreach ($path in $teamsCachePaths) {
         if (Test-Path $path) {
