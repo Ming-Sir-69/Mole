@@ -210,22 +210,33 @@ Describe 'Bounded owner process execution' {
         Invoke-MoleOwnerProcess -Name $script:OwnerCommand -Arguments @('query') | Should -BeNullOrEmpty
     }
     It 'Bounds a slow owner and terminates its sleeping child' {
-        $child = Join-Path $script:ProcessFixture 'sleep.ps1'
-        Set-Content -LiteralPath $child -Encoding ASCII -Value @(
-            'Set-Content -LiteralPath (Join-Path $PSScriptRoot "child.pid") -Value $PID',
-            'Start-Sleep -Seconds 30'
+        $owner = Join-Path $script:ProcessFixture 'sleep.ps1'
+        # Record the child PID in its parent, before the child's PowerShell
+        # startup. CI can exhaust a short budget before a cold child runs code.
+        Set-Content -LiteralPath $owner -Encoding ASCII -Value @(
+            '$child = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList "-NoProfile -NonInteractive -Command Start-Sleep -Seconds 60" -PassThru',
+            'Set-Content -LiteralPath (Join-Path $PSScriptRoot "child.pid") -Value @($child.Id, $child.StartTime.ToUniversalTime().Ticks)',
+            '$child.WaitForExit()'
         )
-        Set-Content -LiteralPath $script:OwnerCommand -Encoding ASCII -Value @(
-            '@echo off',
-            '"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File "%~dp0sleep.ps1"'
-        )
-        $timer = [Diagnostics.Stopwatch]::StartNew()
-        Invoke-MoleOwnerProcess -Name $script:OwnerCommand -Arguments @('query') -TimeoutSeconds 3 | Should -BeNullOrEmpty
-        $timer.Stop()
-        $timer.Elapsed.TotalSeconds | Should -BeLessThan 12
         $pidFile = Join-Path $script:ProcessFixture 'child.pid'
-        Test-Path -LiteralPath $pidFile | Should -BeTrue
-        $childId = [int](Get-Content -LiteralPath $pidFile)
-        Get-Process -Id $childId -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        $timer = [Diagnostics.Stopwatch]::StartNew()
+        try {
+            Invoke-MoleOwnerProcess -Name $owner -Arguments @() -TimeoutSeconds 10 | Should -BeNullOrEmpty
+            $timer.Stop()
+            $timer.Elapsed.TotalSeconds | Should -BeLessThan 20
+            Test-Path -LiteralPath $pidFile | Should -BeTrue
+            $childId = [int](@(Get-Content -LiteralPath $pidFile)[0])
+            Get-Process -Id $childId -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        }
+        finally {
+            if (Test-Path -LiteralPath $pidFile) {
+                # Only the process created by this fixture is eligible for cleanup.
+                $receipt = @(Get-Content -LiteralPath $pidFile)
+                $remaining = Get-Process -Id ([int]$receipt[0]) -ErrorAction SilentlyContinue
+                if ($remaining -and $remaining.StartTime.ToUniversalTime().Ticks -eq [long]$receipt[1]) {
+                    $remaining.Kill()
+                }
+            }
+        }
     }
 }
