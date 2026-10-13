@@ -569,6 +569,18 @@ function Get-UninstallLaunch {
     }
 
     $quiet = Split-UninstallCommand -Command ([string](Get-MoleProperty $App 'QuietUninstallString'))
+    # Proton Pass 1.37.0 registers a broken Squirrel -s argument. Use only its
+    # verified normal command, never a guessed switch or a second uninstall attempt.
+    if ($quiet -and $App.Name -ceq 'Proton Pass' -and
+        (Get-MoleProperty $App 'Publisher') -ceq 'Proton AG' -and
+        (Get-MoleProperty $App 'Version') -ceq '1.37.0' -and
+        $quiet.Arguments -ceq '--uninstall -s' -and
+        [IO.Path]::GetFileName($quiet.FilePath) -ieq 'Update.exe') {
+        $normal = Split-UninstallCommand -Command ([string](Get-MoleProperty $App 'UninstallString'))
+        if ($normal -and $normal.FilePath -ieq $quiet.FilePath -and $normal.Arguments -ceq '--uninstall') {
+            return [PSCustomObject]@{ FilePath = $normal.FilePath; Arguments = $normal.Arguments; Kind = 'registered' }
+        }
+    }
     if ($quiet) {
         return [PSCustomObject]@{ FilePath = $quiet.FilePath; Arguments = $quiet.Arguments; Kind = 'quiet' }
     }

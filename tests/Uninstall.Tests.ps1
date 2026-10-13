@@ -745,3 +745,33 @@ Describe 'Uninstall rendered regression' {
         $apps[0].SizeChecked | Should -BeTrue
     }
 }
+
+Describe 'Registered Proton Pass uninstall compatibility' {
+    BeforeEach {
+        Mock Test-Path { $true } -ParameterFilter { $LiteralPath -like 'C:\Apps\Proton Pass\*.exe' -or $LiteralPath -eq 'C:\Other\Update.exe' }
+        $script:Proton = [pscustomobject]@{
+            Name = 'Proton Pass'; Publisher = 'Proton AG'; Version = '1.37.0'
+            QuietUninstallString = '"C:\Apps\Proton Pass\Update.exe" --uninstall -s'
+            UninstallString = '"C:\Apps\Proton Pass\Update.exe" --uninstall'
+        }
+    }
+    It 'Uses the exact registered normal command for the known broken quiet command' {
+        $launch = Get-UninstallLaunch -App $script:Proton
+        $launch.Arguments | Should -Be '--uninstall'
+        $launch.Kind | Should -Be 'registered'
+    }
+    It 'Preserves quiet commands outside the verified vendor version and executable' -TestCases @(
+        @{ Field = 'Name'; Value = 'Another App' }
+        @{ Field = 'Publisher'; Value = 'Another Vendor' }
+        @{ Field = 'Version'; Value = '1.37.1' }
+        @{ Field = 'UninstallString'; Value = '"C:\Other\Update.exe" --uninstall' }
+        @{ Field = 'UninstallString'; Value = '"C:\Apps\Proton Pass\Update.exe" --uninstall --other' }
+        @{ Field = 'QuietUninstallString'; Value = '"C:\Apps\Proton Pass\Other.exe" --uninstall -s' }
+        @{ Field = 'QuietUninstallString'; Value = '"C:\Apps\Proton Pass\Update.exe" --uninstall -s true' }
+    ) {
+        param($Field, $Value)
+        $script:Proton.$Field = $Value
+        $launch = Get-UninstallLaunch -App $script:Proton
+        $launch.Kind | Should -Be 'quiet'
+    }
+}
