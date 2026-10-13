@@ -53,8 +53,8 @@ if ($ShowHelp) {
 
 $binPath = Ensure-TuiBinary -Name "analyze" -WindowsDir $windowsDir -DestinationPath $defaultBinPath -SourcePath "./cmd/analyze/"
 if (-not $binPath) {
-    Write-Host "Analyze binary not found, no verified release asset was available, and Go is not installed." -ForegroundColor Red
-    Write-Host "Install Go, or run 'mo update' and try again." -ForegroundColor Yellow
+    Write-Host "Could not download the verified analyze tool for this version from GitHub Releases." -ForegroundColor Red
+    Write-Host "Check the network and run 'mo analyze' again. With Go installed, Mole builds it locally instead." -ForegroundColor Yellow
     exit 1
 }
 

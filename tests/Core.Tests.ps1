@@ -427,21 +427,44 @@ Describe "Prebuilt TUI download verification" {
         $script:GoodHash = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
         $script:SumsText = "$($script:GoodHash)  status-windows-x64.exe"
 
-        Mock Invoke-RestMethod {
-            [pscustomobject]@{
-                assets = @(
-                    [pscustomobject]@{ name = "status-windows-x64.exe"; browser_download_url = "https://example.invalid/status" },
-                    [pscustomobject]@{ name = "SHA256SUMS.txt"; browser_download_url = "https://example.invalid/sums" }
-                )
-            }
-        }
+        $script:MissingTags = @()
+        # The GitHub API is rate limited per IP; the restore path must never need it.
+        Mock Invoke-RestMethod { throw "the GitHub API must not be called" }
         Mock Invoke-WebRequest {
+            foreach ($tag in $script:MissingTags) {
+                if ($Uri -clike "*/$tag/*") { throw "404 Not Found" }
+            }
             if ($OutFile) {
                 [System.IO.File]::WriteAllText($OutFile, $script:Payload)
                 return
             }
             [pscustomobject]@{ Content = $script:SumsText }
         }
+    }
+
+    It "Downloads the checksum and binary from the release URLs, not the API" {
+        Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "ok"
+        Should -Invoke Invoke-RestMethod -Times 0
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            $Uri -eq "https://github.com/tw93/Mole/releases/download/V9.9.9-windows/SHA256SUMS.txt" -and -not $OutFile
+        }
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            $Uri -eq "https://github.com/tw93/Mole/releases/download/V9.9.9-windows/status-windows-x64.exe" -and $OutFile
+        }
+    }
+
+    It "Falls back to a lowercase tag when the capital one has no release" {
+        $script:MissingTags = @("V9.9.9-windows")
+        Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "ok"
+        Should -Invoke Invoke-WebRequest -Times 1 -Exactly -ParameterFilter {
+            $Uri -eq "https://github.com/tw93/Mole/releases/download/v9.9.9-windows/status-windows-x64.exe" -and $OutFile
+        }
+    }
+
+    It "Reports unavailable and downloads nothing when no release exists" {
+        $script:MissingTags = @("V9.9.9-windows", "v9.9.9-windows")
+        Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "unavailable"
+        Test-Path $script:Dest | Should -BeFalse
     }
 
     It "Keeps a download whose SHA-256 matches the published checksum" {

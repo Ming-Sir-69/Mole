@@ -13,10 +13,12 @@ $script:MOLE_TUI_CORE_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 . "$script:MOLE_TUI_CORE_DIR\version.ps1"
 
 $script:MoleGitHubRepo = "tw93/Mole"
-$script:MoleGitHubApiRoot = "https://api.github.com/repos/$($script:MoleGitHubRepo)"
+# Release assets are fetched from their fixed download URLs, never through the
+# GitHub API: anonymous API calls are limited to 60 an hour per IP, and a shared
+# office or proxy address runs out, leaving status and analyze with no binary.
+$script:MoleReleaseDownloadRoot = "https://github.com/$($script:MoleGitHubRepo)/releases/download"
 $script:MoleGitHubHeaders = @{
     "User-Agent" = "Mole-Windows"
-    "Accept"     = "application/vnd.github+json"
 }
 
 function Get-MoleVersionFromScriptFile {
@@ -51,50 +53,15 @@ function Resolve-TuiBinaryPath {
     return $null
 }
 
-function Get-WindowsPrereleaseReleaseInfo {
-    param([string]$Version)
-
-    if (-not $Version) {
-        return $null
-    }
-
-    $tagCandidates = @(
-        "V$Version-windows",
-        "v$Version-windows"
-    )
-
-    foreach ($tag in $tagCandidates) {
-        $uri = "$($script:MoleGitHubApiRoot)/releases/tags/$tag"
-        try {
-            return Invoke-RestMethod -Uri $uri -Headers $script:MoleGitHubHeaders -Method Get
-        }
-        catch {
-            continue
-        }
-    }
-
-    return $null
-}
-
-# The SHA-256 the release's SHA256SUMS.txt publishes for one asset, or $null
-# when the release has no checksum file or does not list that asset.
-function Get-ReleaseAssetSha256 {
+# The SHA-256 a SHA256SUMS.txt text publishes for one asset, or $null when it
+# does not list that asset.
+function Get-ChecksumFromSums {
     param(
-        $ReleaseInfo,
+        [string]$SumsText,
         [string]$AssetName
     )
 
-    $sumsAsset = $ReleaseInfo.assets | Where-Object { $_.name -eq "SHA256SUMS.txt" } | Select-Object -First 1
-    if (-not $sumsAsset) {
-        return $null
-    }
-
-    $content = (Invoke-WebRequest -Uri $sumsAsset.browser_download_url -Headers $script:MoleGitHubHeaders -UseBasicParsing).Content
-    if ($content -is [byte[]]) {
-        $content = [System.Text.Encoding]::UTF8.GetString($content)
-    }
-
-    foreach ($line in ($content -split "`r?`n")) {
+    foreach ($line in ($SumsText -split "`r?`n")) {
         $entry = $line.Trim([char]0xFEFF).Trim()
         if ($entry -match '^([0-9a-fA-F]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -eq $AssetName) {
             return $Matches[1].ToLowerInvariant()
@@ -114,19 +81,35 @@ function Restore-PrebuiltTuiBinary {
         [string]$Version
     )
 
-    $releaseInfo = Get-WindowsPrereleaseReleaseInfo -Version $Version
-    if (-not $releaseInfo) {
+    if (-not $Version) {
         return "unavailable"
     }
 
     $assetName = Get-TuiBinaryAssetName -Name $Name
-    $asset = $releaseInfo.assets | Where-Object { $_.name -eq $assetName } | Select-Object -First 1
-    if (-not $asset) {
+    # An executable is never used without a published checksum to compare, so the
+    # release is the first tag whose SHA256SUMS.txt answers.
+    $releaseRoot = $null
+    $sumsText = $null
+    foreach ($tag in @("V$Version-windows", "v$Version-windows")) {
+        $candidate = "$($script:MoleReleaseDownloadRoot)/$tag"
+        try {
+            $content = (Invoke-WebRequest -Uri "$candidate/SHA256SUMS.txt" -Headers $script:MoleGitHubHeaders -UseBasicParsing).Content
+        }
+        catch {
+            continue
+        }
+        if ($content -is [byte[]]) {
+            $content = [System.Text.Encoding]::UTF8.GetString($content)
+        }
+        $releaseRoot = $candidate
+        $sumsText = [string]$content
+        break
+    }
+    if (-not $releaseRoot) {
         return "unavailable"
     }
 
-    # An executable is never used without a published checksum to compare.
-    $expectedHash = Get-ReleaseAssetSha256 -ReleaseInfo $releaseInfo -AssetName $assetName
+    $expectedHash = Get-ChecksumFromSums -SumsText $sumsText -AssetName $assetName
     if (-not $expectedHash) {
         return "unavailable"
     }
@@ -140,7 +123,7 @@ function Restore-PrebuiltTuiBinary {
 
     $downloadPath = "$DestinationPath.download"
     try {
-        Invoke-WebRequest -Uri $asset.browser_download_url -Headers $script:MoleGitHubHeaders -OutFile $downloadPath -UseBasicParsing
+        Invoke-WebRequest -Uri "$releaseRoot/$assetName" -Headers $script:MoleGitHubHeaders -OutFile $downloadPath -UseBasicParsing
         $actualHash = (Get-FileHash -Path $downloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($actualHash -ne $expectedHash) {
             Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
