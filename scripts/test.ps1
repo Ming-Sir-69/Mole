@@ -45,6 +45,7 @@ if (-not $NoPester) {
     $config = New-PesterConfiguration
     $config.Run.Path = $testsDir
     $config.Run.Exit = $false
+    $config.Run.PassThru = $true
     $config.Output.Verbosity = if ($Verbose) { "Detailed" } else { "Normal" }
     
     if ($Coverage) {
@@ -62,32 +63,15 @@ if (-not $NoPester) {
     Write-Host ""
     Write-Host "[Pester] Summary:" -ForegroundColor Yellow
     
-    # Pester already printed results above, just check for failures
-    # Different Pester versions use different result properties
-    $failed = 0
-    try {
-        if ($null -ne $result.FailedCount) {
-            $failed = $result.FailedCount
-        }
-        elseif ($null -ne $result.Failed) {
-            $failed = $result.Failed.Count
-        }
-        elseif ($null -ne $result.Result -and $null -ne $result.Result.FailedCount) {
-            $failed = $result.Result.FailedCount
-        }
-    }
-    catch {
-        # If we can't read the result object, assume tests passed
-        # (Pester itself prints results and would have exited with error if tests failed)
-        Write-Host "  Note: Could not parse result object, checking exit behavior" -ForegroundColor Gray
-    }
-    
-    if ($failed -gt 0) {
-        Write-Host "  $failed test(s) failed!" -ForegroundColor Red
-        $script:ExitCode = 1
+    # Pester 5 reports assertion and container failures through its result.
+    # A missing result or a suite with no passing tests is not a passing gate.
+    if ($null -ne $result -and $result.Result -eq 'Passed' -and
+        $result.PassedCount -gt 0 -and $result.FailedCount -eq 0) {
+        Write-Host "  All Pester tests passed!" -ForegroundColor Green
     }
     else {
-        Write-Host "  All Pester tests passed!" -ForegroundColor Green
+        Write-Host "  Pester did not complete a passing test run." -ForegroundColor Red
+        $script:ExitCode = 1
     }
     
     Write-Host ""
@@ -101,10 +85,16 @@ if (-not $NoGo) {
     Write-Host "[Go] Running Go tests..." -ForegroundColor Yellow
     Write-Host ""
     
-    # Check if Go is installed
-    $goVersion = & go version 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  Go is not installed, skipping Go tests" -ForegroundColor Gray
+    # Only -NoGo may skip this part of the gate.
+    $goCommand = Get-Command go -CommandType Application -ErrorAction SilentlyContinue
+    $goReady = $false
+    if ($goCommand) {
+        $goVersion = & $goCommand.Source version 2>&1
+        $goReady = $LASTEXITCODE -eq 0
+    }
+    if (-not $goReady) {
+        Write-Host "  Go is unavailable or its version check failed." -ForegroundColor Red
+        $script:ExitCode = 1
     }
     else {
         Write-Host "  $goVersion" -ForegroundColor Gray
@@ -121,7 +111,7 @@ if (-not $NoGo) {
             }
             $goArgs += "./..."
             
-            & go @goArgs
+            & $goCommand.Source @goArgs
             
             if ($LASTEXITCODE -ne 0) {
                 $script:ExitCode = 1

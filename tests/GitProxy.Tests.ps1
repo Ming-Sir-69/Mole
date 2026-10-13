@@ -4,6 +4,7 @@
 
 BeforeAll {
     $script:WindowsDir = Split-Path -Parent $PSScriptRoot
+    function git { }
 
     function Get-FunctionText {
         param([string]$Path, [string]$Name)
@@ -32,7 +33,7 @@ Describe "Get-GitProxyArguments" {
             [Environment]::SetEnvironmentVariable($name, $null)
         }
         $global:MoleTestGitConfigProxy = $null
-        function global:git {
+        Mock git {
             if ($args[0] -eq "config" -and $global:MoleTestGitConfigProxy) { return $global:MoleTestGitConfigProxy }
             $global:LASTEXITCODE = 1
         }
@@ -40,7 +41,6 @@ Describe "Get-GitProxyArguments" {
     }
 
     AfterEach {
-        Remove-Item function:global:git -ErrorAction SilentlyContinue
         foreach ($name in $script:SavedProxyEnv.Keys) {
             [Environment]::SetEnvironmentVariable($name, $script:SavedProxyEnv[$name])
         }
