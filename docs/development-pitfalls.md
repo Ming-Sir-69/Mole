@@ -35,3 +35,15 @@ Two scans can target the same path and still represent different requests. Estab
 Cross-compilation proves the Go source builds for Windows; it does not exercise PowerShell, junction behavior, shell recycling or CMD quoting. Use actual Windows fixtures for those surfaces and mock destructive third-party owner commands. Preserve dry-run and positive eligible-target controls alongside protected-target tests.
 
 A passing CI run and pushed source do not establish delivery in signed packages. Keep source, native validation and release evidence separate in the development record, and verify the actual release channel before telling users an update contains a fix.
+
+## Installer inventory and shared directories
+
+A documentation-only change can still change uninstall behavior: the October 13 development notes were initially missing from the install inventory, and both PowerShell CI jobs failed. Every shipped nested file belongs in `Get-MoleInstallNestedFiles`; its inventory test is a required check even for docs. A familiar directory name such as `bin` or `scripts` does not establish ownership of all its contents. Merge installation files and remove exact known files, preserving unknown entries and nonempty Git metadata. Test a shared directory, a pre-created empty directory and a linked ancestor independently.
+
+Release-source equivalence needs the release tag locally. A shallow branch clone may omit it even when the native source is unchanged; missing evidence must not silently select an older binary. Fetch tags through the existing install/update path and test unrelated source changes separately from native source changes.
+
+## Parent selections and accounting
+
+Protecting a child path is insufficient when another entry point moves its whole parent. Analyze must inspect protected descendants at review and at its final recycle boundary, while uninstall additionally verifies surviving installed-app owners from a complete inventory rather than its filtered menu. Keep unknown ownership or incomplete traversal read-only.
+
+Owner pruning may retain most of its store. A preview lists the root but cannot call its full size reclaimable; a successful command can still release zero measurable bytes. Preserve that distinction through summary rendering. Empty PowerShell pipelines can produce no `Measure-Object` result under strict mode, so accumulating file lengths must handle an empty set explicitly. Native nonzero exit codes also do not throw automatically in Windows PowerShell 5.1: check `LASTEXITCODE` before counting success.
