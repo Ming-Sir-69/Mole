@@ -188,17 +188,8 @@ function Clear-AppCaches {
     
     Start-Section "Application caches"
     
-    # Spotify
-    $spotifyCachePaths = @(
-        "$env:LOCALAPPDATA\Spotify\Data"
-        "$env:LOCALAPPDATA\Spotify\Storage"
-    )
-    foreach ($path in $spotifyCachePaths) {
-        if (Test-Path $path) {
-            Clear-DirectoryContents -Path $path -Description "Spotify cache"
-        }
-    }
-    
+    # Spotify Data and Storage may hold offline music; neither is an automatic target.
+
     # Discord
     $discordCachePaths = @(
         "$env:APPDATA\discord\Cache"

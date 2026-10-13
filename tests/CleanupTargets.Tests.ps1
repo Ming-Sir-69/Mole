@@ -43,6 +43,14 @@ Describe 'Conservative cleanup targets' {
         Should -Invoke Clear-DirectoryContents -Times 1 -Exactly -ParameterFilter { $Path -eq "$env:APPDATA\Microsoft\Teams\GPUCache" }
     }
 
+    It 'Keeps Spotify offline stores during automatic cleanup' {
+        foreach ($leaf in @('Data', 'Storage')) {
+            New-Item -ItemType Directory -Path "$env:LOCALAPPDATA\Spotify\$leaf" -Force | Out-Null
+        }
+        Clear-AppCaches
+        Should -Invoke Clear-DirectoryContents -Times 0 -Exactly -ParameterFilter { $Path -like '*\Spotify\*' }
+        Should -Invoke Clear-DirectoryContents -Times 1 -Exactly -ParameterFilter { $Path -eq "$env:APPDATA\Microsoft\Teams\Cache" }
+    }
     It 'Keeps Explorer thumbnails and icons during ordinary user cleanup' {
         Invoke-UserCleanup
         Should -Invoke Clear-UserTempFiles -Times 1 -Exactly

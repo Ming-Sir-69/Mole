@@ -448,19 +448,33 @@ function Test-Whitelisted {
         }
     }
     
-    # Check user whitelist file
-    if (Test-Path $script:Config.WhitelistFile) {
-        $userPatterns = Get-Content $script:Config.WhitelistFile -ErrorAction SilentlyContinue
-        foreach ($pattern in $userPatterns) {
-            $pattern = $pattern.Trim()
-            if ($pattern -and -not $pattern.StartsWith('#')) {
-                if (Test-WhitelistPattern -Path $Path -Pattern $pattern) {
-                    return $true
-                }
+    # Absence is empty; unreadable protection is unknown and must retain every target.
+    try {
+        $null = Get-Item -LiteralPath $script:Config.WhitelistFile -ErrorAction Stop
+    }
+    catch [System.Management.Automation.ItemNotFoundException] {
+        return $false
+    }
+    catch {
+        Write-Debug "Whitelist metadata unavailable; retaining target"
+        return $true
+    }
+    try {
+        $userPatterns = @(Get-Content -LiteralPath $script:Config.WhitelistFile -ErrorAction Stop)
+    }
+    catch {
+        Write-Debug "Whitelist unreadable; retaining target"
+        return $true
+    }
+    foreach ($pattern in $userPatterns) {
+        $pattern = $pattern.Trim()
+        if ($pattern -and -not $pattern.StartsWith('#')) {
+            if (Test-WhitelistPattern -Path $Path -Pattern $pattern) {
+                return $true
             }
         }
     }
-    
+
     return $false
 }
 

@@ -64,6 +64,28 @@ Describe 'Cleanup physical boundaries' {
         Remove-SafeItem -Path $script:Cache -Recurse | Should -BeFalse
         Get-Content -LiteralPath (Join-Path $script:Cache 'same.txt') | Should -Be 'replacement'
     }
+    It 'Keeps a deletion target when an existing whitelist cannot be read' {
+        $cache = Join-Path $script:Root 'retained.txt'
+        Set-Content -LiteralPath $cache -Value 'keep'
+        Set-Content -LiteralPath $script:Config.WhitelistFile -Value $cache
+        Mock Get-Content { Write-Error 'Access denied' } -ParameterFilter {
+            $LiteralPath -eq $script:Config.WhitelistFile -or $Path -eq $script:Config.WhitelistFile
+        }
+        Remove-SafeItem -Path $cache | Should -BeFalse
+        Test-Path -LiteralPath $cache | Should -BeTrue
+    }
+    It 'Refuses unknown whitelist metadata rather than treating it as missing' {
+        Mock Get-Item { throw [System.UnauthorizedAccessException]::new('denied') } -ParameterFilter {
+            $LiteralPath -eq $script:Config.WhitelistFile
+        }
+        Test-SafePath -Path (Join-Path $script:Root 'cache.bin') | Should -BeFalse
+    }
+    It 'Reads a literal bracket-containing whitelist filename' {
+        $script:Config.WhitelistFile = Join-Path $script:Root '[rules].txt'
+        $cache = Join-Path $script:Root 'cache'
+        Set-Content -LiteralPath $script:Config.WhitelistFile -Value $cache
+        Test-SafePath -Path (Join-Path $cache 'keep.txt') | Should -BeFalse
+    }
     It 'Still removes an ordinary cache directory' {
         $cache = Join-Path $script:Root 'cache'
         New-Item -ItemType Directory -Path $cache | Out-Null
