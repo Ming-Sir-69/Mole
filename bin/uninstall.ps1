@@ -983,10 +983,7 @@ function Uninstall-SelectedApps {
                 $null = Remove-SafeItem -Path $folder -Description "Leftover files to Recycle Bin" -Recurse -Recycle -Guard $guard
             }
         }
-        Write-Host ""
-        Write-Host "  Would uninstall: $esc[32m$(@($Apps).Count)$esc[0m"
-        Write-Host "  Run without --dry-run to uninstall"
-        Write-Host ""
+        Show-SummaryBlock -Heading 'Dry run complete - no changes made' -Details @("Would uninstall: $(@($Apps).Count)")
         return
     }
 
@@ -1053,17 +1050,11 @@ function Uninstall-SelectedApps {
         }
     }
 
-    # Summary
-    Write-Host ""
-    Write-Host "$esc[1;35mUninstall Complete$esc[0m"
-    Write-Host "  Successfully uninstalled: $esc[32m$successCount$esc[0m"
-    if ($remainingCount -gt 0) {
-        Write-Host "  Still installed: $esc[33m$remainingCount$esc[0m"
-    }
-    if ($failCount -gt 0) {
-        Write-Host "  Failed: $esc[31m$failCount$esc[0m"
-    }
-    Write-Host ""
+    $details = @("Successfully uninstalled: $successCount")
+    if ($remainingCount -gt 0) { $details += "Still installed: $remainingCount" }
+    if ($failCount -gt 0) { $details += "Failed: $failCount" }
+    $heading = if ($remainingCount -gt 0 -or $failCount -gt 0) { 'Uninstall incomplete' } else { 'Uninstall complete' }
+    Show-SummaryBlock -Heading $heading -Details $details
 
     # Clear cache
     if (Test-Path $script:AppCacheFile) {
@@ -1142,4 +1133,4 @@ function Main {
 }
 
 # Run main
-Main
+try { Main } finally { Stop-Spinner }

@@ -421,6 +421,20 @@ function Show-Header {
 # Summary Display
 # ============================================================================
 
+function Show-SummaryBlock {
+    param([string]$Heading, [string[]]$Details = @())
+    Stop-Spinner
+    $width = [Math]::Max(1, [Math]::Min(70, (Get-TerminalSize).Width))
+    $divider = '=' * $width
+    Write-Host ""
+    Write-Host $divider
+    Write-Host "$(Get-MoleColor -Name Blue)$Heading$(Get-MoleColor -Name NC)"
+    foreach ($detail in $Details) {
+        if ($detail) { Write-Host $detail }
+    }
+    Write-Host $divider
+}
+
 function Show-Summary {
     <#
     .SYNOPSIS
@@ -432,17 +446,8 @@ function Show-Summary {
         [string]$Action = "Cleaned"
     )
     
-    $green = $script:Colors.Green
-    $cyan = $script:Colors.Cyan
-    $nc = $script:Colors.NC
-    
     $sizeHuman = Format-ByteSize -Bytes $SizeBytes
-    
-    Write-Host ""
-    Write-Host "  $($green)$([string][char]0x2501 * 48)$($nc)"
-    Write-Host "  $($green)$($script:Icons.Success)$($nc) $($Action): $($cyan)$($sizeHuman)$($nc) across $($cyan)$($ItemCount)$($nc) items"
-    Write-Host "  $($green)$([string][char]0x2501 * 48)$($nc)"
-    Write-Host ""
+    Show-SummaryBlock -Heading "$Action complete" -Details @("${Action}: $sizeHuman | Items: $ItemCount")
 }
 
 # ============================================================================

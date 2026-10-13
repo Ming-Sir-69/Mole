@@ -126,58 +126,31 @@ function Show-CleanupSummary {
         [bool]$IsDryRun
     )
 
-    $esc = [char]27
-
-    Write-Host ""
-    Write-Host "$esc[1;35m" -NoNewline
-    if ($IsDryRun) {
-        Write-Host "Dry run complete - no changes made" -NoNewline
-    }
-    else {
-        Write-Host "Cleanup complete" -NoNewline
-    }
-    Write-Host "$esc[0m"
-    Write-Host ""
-
+    $green = Get-MoleColor -Name Green
+    $nc = Get-MoleColor -Name NC
+    $heading = if ($IsDryRun) { 'Dry run complete - no changes made' } else { 'Cleanup complete' }
+    $details = @()
     if ($Stats.TotalSizeKB -gt 0) {
-        $sizeGB = [Math]::Round($Stats.TotalSizeKB / 1024 / 1024, 2)
-
+        $size = Format-ByteSize -Bytes ($Stats.TotalSizeKB * 1024)
         if ($IsDryRun) {
-            Write-Host "  Potential space: $esc[32m${sizeGB}GB$esc[0m"
-            Write-Host "  Items found: $($Stats.FilesCleaned)"
-            Write-Host "  Categories: $($Stats.TotalItems)"
-            Write-Host ""
-            Write-Host "  Detailed list: $esc[90m$($script:ExportListFile)$esc[0m"
-            Write-Host "  Run without --dry-run to apply cleanup"
+            $details += "Potential space: ${green}${size}${nc} | Items: $($Stats.FilesCleaned) | Categories: $($Stats.TotalItems)"
         }
         else {
-            Write-Host "  Space freed: $esc[32m${sizeGB}GB$esc[0m"
-            Write-Host "  Items cleaned: $($Stats.FilesCleaned)"
-            Write-Host "  Categories: $($Stats.TotalItems)"
-            Write-Host ""
-            Write-Host "  Free space now: $(Get-FreeSpace)"
+            $details += "Tracked cleanup: ${green}${size}${nc} | Items cleaned: $($Stats.FilesCleaned)"
         }
     }
     elseif ($Stats.ContainsKey('OwnerCleanups') -and $Stats.OwnerCleanups -gt 0) {
-        if ($IsDryRun) {
-            Write-Host "  Tool caches are listed for review."
-            Write-Host "  Detailed list: $esc[90m$($script:ExportListFile)$esc[0m"
-        }
-        else {
-            Write-Host "  Tool cache cleanup completed."
-        }
+        $details += $(if ($IsDryRun) { 'Tool caches are listed for review.' } else { 'Tool cache cleanup completed.' })
     }
     else {
-        if ($IsDryRun) {
-            Write-Host "  No significant reclaimable space detected."
-        }
-        else {
-            Write-Host "  System was already clean; no additional space freed."
-        }
-        Write-Host "  Free space now: $(Get-FreeSpace)"
+        $details += $(if ($IsDryRun) { 'No significant reclaimable space detected.' } else { 'System was already clean; no additional space freed.' })
     }
-
-    Write-Host ""
+    $details += "Free space: $(Get-FreeSpace)"
+    if ($IsDryRun -and ($Stats.TotalSizeKB -gt 0 -or ($Stats.ContainsKey('OwnerCleanups') -and $Stats.OwnerCleanups -gt 0))) {
+        $details += "Detailed file list: $($script:ExportListFile)"
+        $details += 'Use mo clean --whitelist to add protection rules'
+    }
+    Show-SummaryBlock -Heading $heading -Details $details
 }
 
 # ============================================================================
@@ -281,6 +254,10 @@ function Start-Cleanup {
     }
     catch {
         Write-MoleError "Cleanup error: $_"
+    }
+    finally {
+        $script:CurrentSection.Active = $false
+        Stop-Spinner
     }
 
     # Get final stats

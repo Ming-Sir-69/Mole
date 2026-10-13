@@ -176,7 +176,8 @@ function Optimize-DiskDrive {
         }
 
         Write-Host "  Running Windows default optimization on drive ${systemDriveLetter}:..."
-        $null = Optimize-Volume -DriveLetter $systemDriveLetter -ErrorAction Stop
+        Start-Spinner "Optimizing drive..."
+        try { $null = Optimize-Volume -DriveLetter $systemDriveLetter -ErrorAction Stop } finally { Stop-Spinner }
         Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m Drive optimization completed"
         $script:OptimizationsApplied++
     }
@@ -405,7 +406,8 @@ function Test-DiskHealth {
     Write-Host "$esc[34m$($script:Icons.Arrow) Disk Health$esc[0m"
 
     try {
-        $disks = Get-PhysicalDisk -ErrorAction Stop
+        Start-Spinner "Checking disk health..."
+        try { $disks = Get-PhysicalDisk -ErrorAction Stop } finally { Stop-Spinner }
 
         foreach ($disk in $disks) {
             $status = $disk.HealthStatus
@@ -446,8 +448,8 @@ function Test-WindowsUpdate {
         $updateSession = New-Object -ComObject Microsoft.Update.Session
         $updateSearcher = $updateSession.CreateUpdateSearcher()
 
-        Write-Host "  Checking for updates..."
-        $searchResult = $updateSearcher.Search("IsInstalled=0")
+        Start-Spinner "Checking for updates..."
+        try { $searchResult = $updateSearcher.Search("IsInstalled=0") } finally { Stop-Spinner }
 
         $importantUpdates = $searchResult.Updates | Where-Object {
             $_.MsrcSeverity -in @('Critical', 'Important')
@@ -475,40 +477,19 @@ function Test-WindowsUpdate {
 # ============================================================================
 
 function Show-OptimizeSummary {
-    $esc = [char]27
-
-    Write-Host ""
-    Write-Host "$esc[1;35m" -NoNewline
+    $heading = if ($script:DryRun) { 'Dry run complete - no changes made' } else { 'Optimization complete' }
+    $details = @()
     if ($script:DryRun) {
-        Write-Host "Dry Run Complete - No Changes Made" -NoNewline
+        $noun = if ($script:OptimizationsApplied -eq 1) { 'optimization' } else { 'optimizations' }
+        $details += "Would apply $($script:OptimizationsApplied) $noun"
     }
     else {
-        Write-Host "Optimization Complete" -NoNewline
+        $details += "Optimizations applied: $($script:OptimizationsApplied)"
+        if ($script:IssuesFixed -gt 0) { $details += "Issues fixed: $($script:IssuesFixed)" }
+        if ($script:IssuesFound -gt 0) { $details += "Issues found: $($script:IssuesFound)" }
+        else { $details += 'System health: Good' }
     }
-    Write-Host "$esc[0m"
-    Write-Host ""
-
-    if ($script:DryRun) {
-        $noun = if ($script:OptimizationsApplied -eq 1) { "optimization" } else { "optimizations" }
-        Write-Host "  Would apply $esc[33m$($script:OptimizationsApplied)$esc[0m $noun"
-        Write-Host "  Run without --dry-run to apply changes"
-    }
-    else {
-        Write-Host "  Optimizations applied: $esc[32m$($script:OptimizationsApplied)$esc[0m"
-
-        if ($script:IssuesFixed -gt 0) {
-            Write-Host "  Issues fixed: $esc[32m$($script:IssuesFixed)$esc[0m"
-        }
-
-        if ($script:IssuesFound -gt 0) {
-            Write-Host "  Issues found: $esc[33m$($script:IssuesFound)$esc[0m"
-        }
-        else {
-            Write-Host "  System health: $esc[32mGood$esc[0m"
-        }
-    }
-
-    Write-Host ""
+    Show-SummaryBlock -Heading $heading -Details $details
 }
 
 # ============================================================================
@@ -545,7 +526,8 @@ function Main {
     }
 
     # Show system health
-    $health = Get-SystemHealth
+    Start-Spinner "Checking system health..."
+    try { $health = Get-SystemHealth } finally { Stop-Spinner }
     Show-SystemHealth -Health $health
 
     # Run optimizations
@@ -572,4 +554,4 @@ function Main {
 }
 
 # Run main
-Main
+try { Main } finally { Stop-Spinner }

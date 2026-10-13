@@ -707,6 +707,7 @@ function Get-MoleInstallNestedFiles {
         "tests\Release.Tests.ps1"
         "tests\Router.Tests.ps1"
         "tests\TestRunner.Tests.ps1"
+        "tests\UI.Tests.ps1"
         "tests\Uninstall.Tests.ps1"
     )
 }

@@ -46,7 +46,9 @@ function Write-LogMessage {
     $formattedIcon = if ($Icon) { "$Icon " } else { "" }
     $output = "  ${colorCode}${formattedIcon}${nc}${Message}"
 
+    Stop-Spinner
     Write-Host $output
+    if ($script:CurrentSection.Active) { Start-Spinner }
 
     # Also write to log file if configured
     if ($script:LogConfig.LogFile) {
@@ -102,7 +104,9 @@ function Write-Debug {
     if ($script:LogConfig.DebugEnabled) {
         $gray = Get-MoleColor -Name "Gray"
         $nc = Get-MoleColor -Name "NC"
+        Stop-Spinner
         Write-Host "  ${gray}[DEBUG] $Message${nc}"
+        if ($script:CurrentSection.Active) { Start-Spinner }
     }
 }
 
@@ -132,6 +136,7 @@ function Start-Section {
     #>
     param([string]$Title)
 
+    Stop-Spinner
     $script:CurrentSection.Active = $true
     $script:CurrentSection.Activity = $false
     $script:CurrentSection.Name = $Title
@@ -142,6 +147,7 @@ function Start-Section {
 
     Write-Host ""
     Write-Host "${purple}${arrow} ${Title}${nc}"
+    Start-Spinner
 }
 
 function Stop-Section {
@@ -149,10 +155,12 @@ function Stop-Section {
     .SYNOPSIS
         End the current section
     #>
+    Stop-Spinner
     if ($script:CurrentSection.Active -and -not $script:CurrentSection.Activity) {
         Write-Success "Nothing to tidy"
     }
     $script:CurrentSection.Active = $false
+    Stop-Spinner
 }
 
 function Set-SectionActivity {
@@ -169,82 +177,104 @@ function Set-SectionActivity {
 # Progress Spinner
 # ============================================================================
 
-$script:SpinnerFrames = @('|', '/', '-', '\')
-$script:SpinnerIndex = 0
-$script:SpinnerJob = $null
+function Test-MoleInteractiveOutput {
+    try {
+        return $Host.Name -eq 'ConsoleHost' -and -not [Console]::IsOutputRedirected -and
+            -not [Console]::IsInputRedirected -and $env:TERM -ne 'dumb'
+    }
+    catch { return $false }
+}
+
+function Initialize-MoleSpinner {
+    if ('Mole.TerminalSpinner' -as [type]) { return }
+    # A CLR timer continues while PowerShell waits on synchronous filesystem work.
+    # It never calls PowerShell from a background thread. Stop drains its callback
+    # before the foreground writes a row or returns control to the caller.
+    Add-Type -TypeDefinition @'
+using System;
+using System.Threading;
+namespace Mole {
+    public static class TerminalSpinner {
+        static readonly object Gate = new object();
+        static readonly char[] Frames = { '\u2816', '\u2832', '\u2834', '\u2826' };
+        static Timer timer;
+        static string text;
+        static int frame;
+        static bool drawn;
+        public static void Start(string message) {
+            lock (Gate) {
+                text = message;
+                if (timer != null) return;
+                frame = 0;
+                timer = new Timer(Draw, null, 80, 80);
+            }
+        }
+        static void Draw(object state) {
+            lock (Gate) {
+                if (timer == null) return;
+                try {
+                    int columns = 80;
+                    try { columns = Console.WindowWidth; } catch (System.IO.IOException) { }
+                    int width = Math.Max(1, columns - 5);
+                    string label = text.Length > width ? text.Substring(0, width) : text;
+                    Console.Write("\r\x1b[2K  \x1b[34m" + Frames[frame++ % Frames.Length] + "\x1b[0m " + label);
+                    drawn = true;
+                } catch { /* Losing a terminal must not interrupt maintenance. */ }
+            }
+        }
+        public static void Stop() {
+            lock (Gate) {
+                if (timer != null) { timer.Dispose(); timer = null; }
+                if (drawn) {
+                    try { Console.Write("\r\x1b[2K"); } catch { }
+                    drawn = false;
+                }
+            }
+        }
+    }
+}
+'@
+}
 
 function Start-Spinner {
-    <#
-    .SYNOPSIS
-        Start an inline spinner with message
-    #>
-    param([string]$Message = "Working...")
-
-    $script:SpinnerIndex = 0
-    $gray = Get-MoleColor -Name "Gray"
-    $nc = Get-MoleColor -Name "NC"
-
-    Write-Host -NoNewline "  ${gray}$($script:SpinnerFrames[0]) $Message${nc}"
+    param([string]$Message = "Scanning...")
+    if (-not (Test-MoleInteractiveOutput)) { return }
+    try {
+        Initialize-MoleSpinner
+        # Messages are terminal text, never control sequences supplied by paths.
+        $safeMessage = $Message -replace '[\x00-\x1f\x7f]', ' '
+        [Mole.TerminalSpinner]::Start($safeMessage)
+    }
+    catch { } # A host without dynamic compilation keeps the normal static output.
 }
 
 function Update-Spinner {
-    <#
-    .SYNOPSIS
-        Update the spinner animation
-    #>
-    param([string]$Message)
-
-    $script:SpinnerIndex = ($script:SpinnerIndex + 1) % $script:SpinnerFrames.Count
-    $frame = $script:SpinnerFrames[$script:SpinnerIndex]
-    $gray = Get-MoleColor -Name "Gray"
-    $nc = Get-MoleColor -Name "NC"
-
-    # Move cursor to beginning of line and clear
-    Write-Host -NoNewline "`r  ${gray}$frame $Message${nc}    "
+    param([string]$Message = "Scanning...")
+    Start-Spinner -Message $Message
 }
 
 function Stop-Spinner {
-    <#
-    .SYNOPSIS
-        Stop the spinner and clear the line
-    #>
-    Write-Host -NoNewline "`r                                                            `r"
+    if ('Mole.TerminalSpinner' -as [type]) { [Mole.TerminalSpinner]::Stop() }
 }
 
-# ============================================================================
-# Progress Bar
-# ============================================================================
-
 function Write-Progress {
-    <#
-    .SYNOPSIS
-        Write a progress bar
-    #>
+    # Match the built-in parameter names used by the application/project scanners.
     param(
-        [int]$Current,
-        [int]$Total,
+        [string]$Activity = "Scanning...",
+        [string]$Status = "",
+        [int]$PercentComplete = -1,
+        [switch]$Completed,
+        [int]$Current = 0,
+        [int]$Total = 0,
         [string]$Message = "",
         [int]$Width = 30
     )
-
-    $percent = if ($Total -gt 0) { [Math]::Round(($Current / $Total) * 100) } else { 0 }
-    $filled = [Math]::Round(($Width * $Current) / [Math]::Max($Total, 1))
-    $empty = $Width - $filled
-
-    $bar = ("[" + ("=" * $filled) + (" " * $empty) + "]")
-    $cyan = Get-MoleColor -Name "Cyan"
-    $nc = Get-MoleColor -Name "NC"
-
-    Write-Host -NoNewline "`r  ${cyan}$bar${nc} ${percent}% $Message    "
+    if ($Completed) { Stop-Spinner; return }
+    $label = if ($Message) { $Message } elseif ($Status) { "$Activity, $Status" } else { $Activity }
+    Update-Spinner -Message $label
 }
 
-function Complete-Progress {
-    <#
-    .SYNOPSIS
-        Clear the progress bar line
-    #>
-    Write-Host -NoNewline "`r" + (" " * 80) + "`r"
-}
+function Complete-Progress { Stop-Spinner }
 
 # ============================================================================
 # Log File Management

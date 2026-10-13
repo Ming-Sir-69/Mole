@@ -9,6 +9,8 @@ BeforeAll {
     function Start-Cleanup { param($IsDryRun,$IncludeSystem,$IncludeGameMedia) }
     function Clear-TempFiles {}
     function Get-SystemHealth { @{} }
+    function Start-Spinner { param($Message) }
+    function Stop-Spinner {}
     function Show-SystemHealth { param($Health) }
     function Optimize-DiskDrive {}
     function Clear-DnsCache {}

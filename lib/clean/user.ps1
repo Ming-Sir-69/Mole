@@ -25,8 +25,6 @@ function Clear-UserTempFiles {
     #>
     param([int]$DaysOld = 7)
     
-    Start-Section "User temp files"
-    
     # User temp directory
     $userTemp = $env:TEMP
     if (Test-Path $userTemp) {
@@ -39,7 +37,6 @@ function Clear-UserTempFiles {
         Remove-OldFiles -Path $winTemp -DaysOld $DaysOld -Description "Windows temp files"
     }
     
-    Stop-Section
 }
 
 # ============================================================================

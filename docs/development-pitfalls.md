@@ -28,6 +28,8 @@ For Windows VM tests launched as SYSTEM, create a private fixture profile before
 
 When copying a source archive from macOS, exclude AppleDouble `._*` files and extended attributes at export. Those metadata files can be discovered as tests or install entries on Windows. Inspect the extracted inventory before interpreting a new parse or discovery failure as a product bug. Keep machine-specific runners and temporary paths outside tracked documentation.
 
+On physical Windows, keep the isolated temporary root short: fixture GUIDs plus realistic application paths can exceed Windows PowerShell 5.1 path limits before the test reaches production code. File symbolic-link fixtures separately require the creation privilege; do not count a fixture setup refusal as a passed protection test. Record it separately from the privileged VM/CI run.
+
 ## Asynchronous Analyze actions
 
 Two scans can target the same path and still represent different requests. Establish request identity before dispatch, then validate both identity and path when accepting results. Separately test that busy deletion rejects action keys and still permits quit. [lifecycle_test.go](../cmd/analyze/lifecycle_test.go) covers these boundaries; path equality alone or a busy rendering state does not enforce them.

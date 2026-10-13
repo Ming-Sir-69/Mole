@@ -628,36 +628,16 @@ function Remove-ProjectArtifacts {
 # ============================================================================
 
 function Show-PurgeSummary {
-    $esc = [char]27
-
-    Write-Host ""
-    if ($script:MoleDryRunMode) {
-        Write-Host "$esc[1;35mDry run complete - no changes made$esc[0m"
-    }
-    else {
-        Write-Host "$esc[1;35mPurge Complete$esc[0m"
-    }
-    Write-Host ""
-
+    $heading = if ($script:MoleDryRunMode) { 'Dry run complete - no changes made' } else { 'Purge complete' }
+    $details = @()
     if ($script:TotalSizeCleaned -gt 0) {
-        $sizeGB = [Math]::Round($script:TotalSizeCleaned / 1024 / 1024, 2)
-        if ($script:MoleDryRunMode) {
-            Write-Host "  Potential space: $esc[32m${sizeGB}GB$esc[0m"
-            Write-Host "  Items found: $($script:ItemsCleaned)"
-            Write-Host "  Run without --dry-run to remove them"
-        }
-        else {
-            Write-Host "  Space freed: $esc[32m${sizeGB}GB$esc[0m"
-            Write-Host "  Items cleaned: $($script:ItemsCleaned)"
-            Write-Host "  Free space now: $(Get-FreeSpace)"
-        }
+        $size = Format-ByteSize -Bytes ($script:TotalSizeCleaned * 1024)
+        $label = if ($script:MoleDryRunMode) { 'Potential space' } else { 'Tracked cleanup' }
+        $details += "${label}: $(Get-MoleColor -Name Green)$size$(Get-MoleColor -Name NC) | Items: $($script:ItemsCleaned)"
     }
-    else {
-        Write-Host "  No artifacts to clean."
-        Write-Host "  Free space now: $(Get-FreeSpace)"
-    }
-
-    Write-Host ""
+    else { $details += 'No artifacts to clean.' }
+    $details += "Free space: $(Get-FreeSpace)"
+    Show-SummaryBlock -Heading $heading -Details $details
 }
 
 # ============================================================================
@@ -769,4 +749,4 @@ function Main {
 }
 
 # Run main
-Main
+try { Main } finally { Stop-Spinner }
