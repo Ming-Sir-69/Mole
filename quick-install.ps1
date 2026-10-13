@@ -55,6 +55,57 @@ function Test-SourceInstall {
     return (Test-Path (Join-Path $Path ".git"))
 }
 
+$script:MoleGitProxyArguments = $null
+
+# Git ignores the Windows system proxy that PowerShell downloads use, so on a
+# machine that reaches GitHub only through that proxy, clone and pull fail
+# while every other download works. Pass the system proxy to git for this
+# run, unless the user already gave git a proxy of their own.
+function Get-MoleSystemProxy {
+    param([Uri]$Target)
+
+    try {
+        $proxy = [System.Net.WebRequest]::GetSystemWebProxy().GetProxy($Target)
+    }
+    catch {
+        return $null
+    }
+    if (-not $proxy -or $proxy.AbsoluteUri -eq $Target.AbsoluteUri) {
+        return $null
+    }
+    return $proxy.AbsoluteUri.TrimEnd('/')
+}
+
+function Get-GitProxyArguments {
+    if ($null -ne $script:MoleGitProxyArguments) {
+        return $script:MoleGitProxyArguments
+    }
+    $script:MoleGitProxyArguments = @()
+
+    foreach ($name in @("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY")) {
+        if ([Environment]::GetEnvironmentVariable($name) -or [Environment]::GetEnvironmentVariable($name.ToLowerInvariant())) {
+            return $script:MoleGitProxyArguments
+        }
+    }
+    foreach ($key in @("http.proxy", "https.proxy")) {
+        try {
+            $configured = & git config --get $key 2>$null
+        }
+        catch {
+            $configured = $null
+        }
+        if ($configured) {
+            return $script:MoleGitProxyArguments
+        }
+    }
+
+    $proxy = Get-MoleSystemProxy -Target ([Uri]"https://github.com/")
+    if ($proxy) {
+        $script:MoleGitProxyArguments = @("-c", "http.proxy=$proxy")
+    }
+    return $script:MoleGitProxyArguments
+}
+
 function Invoke-GitCommand {
     param(
         [string]$WorkingDirectory,
@@ -76,6 +127,7 @@ function Invoke-GitCommand {
         if ($WorkingDirectory) {
             $gitArguments += @("-C", $WorkingDirectory)
         }
+        $gitArguments += @(Get-GitProxyArguments)
         $gitArguments += $Arguments
 
         $output = & git @gitArguments 2>&1

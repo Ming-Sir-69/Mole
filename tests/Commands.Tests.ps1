@@ -178,10 +178,15 @@ $commandArgs = @($GitArgs)
 if ($commandArgs.Count -ge 3 -and $commandArgs[0] -eq "-C") {
     $commandArgs = @($commandArgs[2..($commandArgs.Count - 1)])
 }
+# A system proxy on the test machine adds "-c http.proxy=..."; it is not part of the command.
+while ($commandArgs.Count -ge 3 -and $commandArgs[0] -eq "-c") {
+    $commandArgs = @($commandArgs[2..($commandArgs.Count - 1)])
+}
 
 $commandLine = $commandArgs -join " "
 $global:LASTEXITCODE = 0
 switch -Regex ($commandLine) {
+    '^config --get https?\.proxy$' { $global:LASTEXITCODE = 1; break }
     '^status --porcelain --untracked-files=no$' { break }
     '^remote get-url origin$' { "https://github.com/tw93/Mole.git"; break }
     '^branch --show-current$' { "windows"; break }
