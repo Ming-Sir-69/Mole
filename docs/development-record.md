@@ -57,3 +57,24 @@ Sibling checks included five owner-cache commands, three proxy input forms, two 
 The first remote follow-up run passed Windows PowerShell 5.1 but exposed a timing-dependent process-tree test under PowerShell 7: its child had not written its PID before cancellation. The fixture now records the PID from the parent and checks termination independently of child startup, with identity-bound fixture cleanup. Production timeout settings are unchanged.
 
 The next remote run passed both PowerShell suites and exposed a Go fixture under the runner’s `AppData\Local\Temp` path, which intentionally suppresses cleanable hints. The cache-evidence fixture now uses relative paths inside its private temporary directory, with separate assertions for the three handled-path exclusions. The old fixture failed under the matching Windows temporary path; the corrected full native Analyze suite passed there. Production hint policy is unchanged.
+
+Final source revision `88cf57e8` passed [Check](https://github.com/tw93/Mole/actions/runs/38382721940) and [Validation](https://github.com/tw93/Mole/actions/runs/38382721936), including both PowerShell versions, Go tests, Build and Security Checks.
+
+## 2026-10-13: Security review and physical Windows acceptance
+
+Added [SECURITY_AUDIT.md](../SECURITY_AUDIT.md), following the macOS CLI audit's threat-surface, deletion-boundary, privilege, distribution, coverage and limitation structure. Claims were checked against the Windows implementations and workflows. Corrected `SECURITY.md`'s stale statement that no operation uses the Recycle Bin and distinguished release policy from artifact verification. `AGENTS.md` now points future safety work to the review. Product behavior is unchanged.
+
+Documentation validation: local references and whitespace checks passed. Windows VM PowerShell 5.1 ran both installation suites with 36 passed, zero failed or skipped, including the shipped-file inventory. `SECURITY_AUDIT.md` was already reserved in the installer inventory and needed no installer change.
+
+The physical-machine acceptance queue remains separate from the passing source/CI evidence:
+
+| Item | State | Evidence or remaining work |
+| --- | --- | --- |
+| ThinkPad control channel | Blocked | The existing remote window was visible, but attempted input did not produce command output. The recorded SSH address was reachable only as far as an unknown host-key refusal; no trusted authenticated session was established. Connection/security settings were not changed. |
+| Machine and source identity | Pending | Capture model, Windows build, process architecture, runtime versions, exact source SHA and pre-test worktree state on the physical machine. |
+| PowerShell compatibility | Pending | Run the complete nonempty Pester suite under 5.1 and 7 on that source; retain runner summaries, skips and exit status. |
+| Native Go and build | Pending | Run Go tests, vet, formatting and builds for Analyze, Status and the launcher on x64 hardware; record any unavailable tooling separately. |
+| Safety and interactive acceptance | Pending | Run fixture-based path, ownership, dry-run and recycle checks. Inspect read-only CLI/TUI startup and exit behavior. Real app uninstall, service mutation and user-data cleanup are excluded. |
+| Review documentation | Complete | Safety model and limitations recorded, including advisory CI checks, path-based race limitations and differences between native recycle APIs. |
+
+Resume in an isolated test directory once the existing connection works. Use the repository test runner and the actual CI workflow as the command inventory; never substitute an observed desktop, transferred file, VM result or past test log for a completed ThinkPad run. Store raw machine logs locally, and add only sanitized evidence here. No release is included.

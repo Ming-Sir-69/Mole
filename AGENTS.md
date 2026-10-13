@@ -30,6 +30,8 @@ Start resumed Windows CLI work with [the development record](docs/development-re
 
 Read [development pitfalls](docs/development-pitfalls.md) only when working on the matching PowerShell, launcher, Git, asynchronous TUI or Windows test boundary. Current policy stays in this guide; the reference explains failure mechanisms and points to regression tests. Add only a verified, non-obvious lesson or rejected alternative, preferably under an existing topic. Do not copy every small fix or successful check into permanent rules.
 
+[SECURITY_AUDIT.md](SECURITY_AUDIT.md) describes the Windows CLI safety model and verification limits. Update affected claims when deletion, ownership, privilege or distribution boundaries change. Keep CI, VM, physical-machine and signed-release evidence separate in the development record; an observed remote desktop or attempted command is not a completed hardware test. Machine connection details and raw diagnostics stay out of public documents.
+
 ## Commands
 
 ```powershell

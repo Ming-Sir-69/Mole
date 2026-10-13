@@ -50,7 +50,9 @@ If you are unsure whether something is security-relevant, report it privately fi
 
 ## Safety Boundaries
 
-- Every deletion goes through the helpers in `lib/core/file_ops.ps1`, which check protected paths and the whitelist and honor dry-run mode.
+- PowerShell cleanup uses the helpers in `lib/core/file_ops.ps1`, which check protected paths and the whitelist and honor dry-run mode. Native Analyze and installer operations have separate guards.
 - `C:\Windows`, `C:\Program Files`, `C:\Program Files (x86)`, Windows Defender folders, and the user profile root are protected; an empty or unparsable path counts as protected.
-- Deletions are permanent; Mole does not use the Recycle Bin.
-- Release scripts and executables are Authenticode-signed, and `SHA256SUMS.txt` lists every release asset. Prebuilt `analyze` and `status` tools are used only when their SHA-256 matches that list.
+- Automatic cleanup generally deletes permanently. Verified uninstall leftovers use the shell's recycle-only operation; Analyze requests Recycle Bin behavior and a Windows warning if permanent deletion would be required. Third-party uninstallers retain their own removal semantics.
+- The release process requires Authenticode signing and `SHA256SUMS.txt` for release assets. Downloaded prebuilt `analyze` and `status` tools are accepted only when their SHA-256 matches that list; a source review alone does not verify a published package.
+
+See [the Windows CLI security review](SECURITY_AUDIT.md) for implementation boundaries, regression coverage and known limitations.
