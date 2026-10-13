@@ -111,6 +111,13 @@ func moveToRecycleBin(path string) error {
 	if err := validateDeleteTarget(absPath); err != nil {
 		return err
 	}
+	guard, err := prepareRecycleTarget(absPath)
+	if err != nil {
+		return err
+	}
+	if err := guard(); err != nil {
+		return err
+	}
 	return recycleItem(absPath)
 }
 
@@ -125,10 +132,12 @@ func validateDeleteTarget(path string) error {
 		return fmt.Errorf("protected path cannot be deleted: %s", path)
 	}
 	parent := filepath.Dir(filepath.Clean(path))
-	if resolvedParent, err := resolveFinalPath(parent); err == nil {
-		if isProtectedPath(filepath.Join(resolvedParent, filepath.Base(path))) {
-			return fmt.Errorf("protected path cannot be deleted: %s", path)
-		}
+	resolvedParent, err := resolveFinalPath(parent)
+	if err != nil {
+		return fmt.Errorf("cannot inspect parent of %s: %w", path, err)
+	}
+	if isProtectedPath(filepath.Join(resolvedParent, filepath.Base(path))) {
+		return fmt.Errorf("protected path cannot be deleted: %s", path)
 	}
 	return nil
 }

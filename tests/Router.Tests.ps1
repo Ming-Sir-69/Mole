@@ -53,6 +53,26 @@ Describe "mole.ps1 command router" {
         $script:MoleExitCode | Should -Be 2
     }
 
+    It "Preserves a literal trailing apostrophe in positional and named paths" {
+        Set-Content -LiteralPath (Join-Path $script:MOLE_BIN "path.ps1") -Value 'param([string]$Path) $Path'
+        $literal = "C:\fixture\reports'"
+        Invoke-MoleCommand -CommandName "path" -Arguments @($literal) | Should -BeExactly $literal
+        Invoke-MoleCommand -CommandName "path" -Arguments @("--path=$literal") | Should -BeExactly $literal
+    }
+
+    It "Refuses an unknown command with a failure exit code" {
+        Invoke-MoleCommand -CommandName "missing" -Arguments @()
+        $script:MoleExitCode | Should -Be 2
+    }
+
+    It "Preserves native TUI exit codes and resets stale results for help" {
+        Set-Content -LiteralPath (Join-Path $script:MOLE_BIN "status.ps1") -Value 'param([switch]$ShowHelp) if ($ShowHelp) { return }; & $env:ComSpec /d /c exit 7; exit $LASTEXITCODE'
+        Invoke-MoleCommand -CommandName "status" -Arguments @()
+        $script:MoleExitCode | Should -Be 7
+        Invoke-MoleCommand -CommandName "status" -Arguments @("--help")
+        $script:MoleExitCode | Should -Be 0
+    }
+
     It "Shows help for every real command" -ForEach @(
         "clean", "uninstall", "optimize", "analyze", "status", "purge", "update", "remove"
     ) {
@@ -71,6 +91,11 @@ Describe "mo --help and --version" {
         $output | Should -Match "https://mole\.fit/windows"
         $output | Should -Match "COMMANDS"
         $output | Should -Match "mo uninstall --dry-run"
+    }
+
+    It "Returns failure for an unknown command from the installed File entrypoint" {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $script:Mole not-a-command 2>&1 | Out-Null
+        $LASTEXITCODE | Should -Be 2
     }
 
     It "Reports the version, platform and install method" {

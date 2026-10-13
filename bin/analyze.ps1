@@ -68,3 +68,7 @@ try {
 finally {
     $env:MO_ANALYZE_PATH = $previousPath
 }
+
+# Explicitly propagate native failures through powershell.exe -File as well
+# as the executable launcher. Help returns before reaching this point.
+exit $LASTEXITCODE

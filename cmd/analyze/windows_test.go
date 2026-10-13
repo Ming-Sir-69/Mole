@@ -326,3 +326,66 @@ func TestRecycleBinIntegration(t *testing.T) {
 		t.Fatalf("junction target content changed after recycling its parent: %q, %v", data, err)
 	}
 }
+
+func TestRecycleRefusesProtectedDescendant(t *testing.T) {
+	calls := withRecorder(t)
+	local := filepath.Join(t.TempDir(), "Local")
+	t.Setenv("LOCALAPPDATA", local)
+	if err := os.MkdirAll(filepath.Join(local, "Docker", "wsl"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := moveToRecycleBin(local); err == nil {
+		t.Fatal("recycled parent of protected Docker data")
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("recycle called: %v", *calls)
+	}
+	sibling := filepath.Join(filepath.Dir(local), "ordinary")
+	if err := os.Mkdir(sibling, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := moveToRecycleBin(sibling); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("eligible sibling not recycled: %v", *calls)
+	}
+}
+
+func TestRecycleReviewRejectsReplacedRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "reviewed")
+	if err := os.Mkdir(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := prepareRecycleTarget(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(root, root+"-original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard(); err == nil {
+		t.Fatal("replacement accepted")
+	}
+}
+
+func TestRecycleReviewRechecksNewProtectedChild(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "Local")
+	t.Setenv("LOCALAPPDATA", root)
+	if err := os.Mkdir(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := prepareRecycleTarget(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "Docker"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard(); err == nil {
+		t.Fatal("new protected child accepted")
+	}
+}

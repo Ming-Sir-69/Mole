@@ -65,3 +65,7 @@ if ($Json) { $binArgs += "--json" }
 if ($Watch) { $binArgs += "--watch" }
 if ($Interval) { $binArgs += "--interval=$Interval" }
 & $binPath @binArgs
+
+# Explicitly propagate native failures through powershell.exe -File as well
+# as the executable launcher. Help returns before reaching this point.
+exit $LASTEXITCODE

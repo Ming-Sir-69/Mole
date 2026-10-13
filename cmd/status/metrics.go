@@ -732,10 +732,7 @@ func collectProxyFromEnv(getenv func(string) string) ProxyStatus {
 		if strings.HasPrefix(strings.ToLower(val), "socks") {
 			proxyType = "SOCKS"
 		}
-		host := parseProxyHost(val)
-		if host == "" {
-			host = val
-		}
+		host := displayProxyHost(val)
 		return ProxyStatus{Enabled: true, Type: proxyType, Host: host}
 	}
 	return ProxyStatus{}
@@ -748,7 +745,7 @@ func proxyFromInternetSettings(enabled bool, server, autoConfigURL string) Proxy
 	server = strings.TrimSpace(server)
 	if enabled && server != "" {
 		if !strings.Contains(server, "=") {
-			return ProxyStatus{Enabled: true, Type: "HTTP", Host: server}
+			return ProxyStatus{Enabled: true, Type: "HTTP", Host: displayProxyHost(server)}
 		}
 		perProtocol := map[string]string{}
 		for part := range strings.SplitSeq(server, ";") {
@@ -759,7 +756,7 @@ func proxyFromInternetSettings(enabled bool, server, autoConfigURL string) Proxy
 		}
 		for _, p := range []struct{ key, label string }{{"socks", "SOCKS"}, {"https", "HTTPS"}, {"http", "HTTP"}} {
 			if host, ok := perProtocol[p.key]; ok {
-				return ProxyStatus{Enabled: true, Type: p.label, Host: host}
+				return ProxyStatus{Enabled: true, Type: p.label, Host: displayProxyHost(host)}
 			}
 		}
 	}
@@ -771,6 +768,15 @@ func proxyFromInternetSettings(enabled bool, server, autoConfigURL string) Proxy
 		return ProxyStatus{Enabled: true, Type: "PAC", Host: host}
 	}
 	return ProxyStatus{}
+}
+
+// Invalid URLs may still contain credentials. Never expose an unparsed
+// environment or registry value in the dashboard or JSON output.
+func displayProxyHost(raw string) string {
+	if host := parseProxyHost(raw); host != "" {
+		return host
+	}
+	return "Unknown"
 }
 
 func parseProxyHost(raw string) string {

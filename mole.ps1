@@ -223,11 +223,15 @@ function Invoke-MoleCommand {
     $scriptPath = Join-Path $script:MOLE_BIN "$CommandName.ps1"
 
     if (-not (Test-Path $scriptPath)) {
+        $script:MoleExitCode = 2
         Write-MoleError "Unknown command: $CommandName"
         Write-Host ""
         Write-Host "Run 'mo --help' for available commands"
         return
     }
+
+    # A previous native command must not make a help-only invocation fail.
+    if ($CommandName -in @("analyze", "status")) { $global:LASTEXITCODE = 0 }
 
     # Execute the command script with arguments using splatting
     # This properly handles switch parameters passed as strings
@@ -239,8 +243,9 @@ function Invoke-MoleCommand {
         $positionalArgs = @()
 
         foreach ($arg in $Arguments) {
-            # Remove surrounding quotes if present
-            $cleanArg = $arg.Trim("'`"")
+            # Shell parsing already removed syntactic quotes. Literal quote
+            # characters belong to the argument and must be preserved.
+            $cleanArg = $arg
 
             if ($cleanArg -match '^-{1,2}([\w-]+)$') {
                 # It's a switch parameter (e.g., -DryRun or --dry-run)
@@ -262,7 +267,7 @@ function Invoke-MoleCommand {
                     $script:MoleExitCode = 2
                     return
                 }
-                $paramValue = $Matches[2].Trim("'`"")
+                $paramValue = $Matches[2]
                 $splatParams[$paramName] = $paramValue
             }
             else {
@@ -281,6 +286,9 @@ function Invoke-MoleCommand {
     }
     else {
         & $scriptPath
+    }
+    if ($CommandName -in @("analyze", "status")) {
+        $script:MoleExitCode = $LASTEXITCODE
     }
 }
 
@@ -350,6 +358,7 @@ function Main {
             Invoke-MoleCommand -CommandName $effectiveCommand -Arguments $effectiveArguments
         }
         else {
+            $script:MoleExitCode = 2
             Write-MoleError "Unknown command: $effectiveCommand"
             Write-Host ""
             Write-Host "Available commands: $($validCommands -join ', ')"

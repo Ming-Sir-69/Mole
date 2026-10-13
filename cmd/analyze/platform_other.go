@@ -40,3 +40,5 @@ func moveToRecycleBinNative(string) error { return errUnsupported }
 func isProtectedPath(string) bool { return true }
 
 func resolveFinalPath(path string) (string, error) { return filepath.EvalSymlinks(path) }
+
+func prepareRecycleTarget(string) (func() error, error) { return nil, errUnsupported }
