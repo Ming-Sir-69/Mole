@@ -921,7 +921,7 @@ function Uninstall-SelectedApps {
             Write-Host "  $esc[90mWould uninstall with $(Get-UninstallMethodDescription -App $app)$esc[0m"
             $folder = [string](Get-MoleProperty $app 'InstallLocation')
             if ($app.Source -ne "WindowsStore" -and (Test-MoleInstallFolder -Path $folder)) {
-                $null = Remove-SafeItem -Path $folder -Description "Leftover files" -Recurse
+                $null = Remove-SafeItem -Path $folder -Description "Leftover files to Recycle Bin" -Recurse -Recycle
             }
         }
         Write-Host ""
@@ -982,8 +982,8 @@ function Uninstall-SelectedApps {
             # Clean leftover files
             $folder = [string](Get-MoleProperty $app 'InstallLocation')
             if (Test-MoleInstallFolder -Path $folder) {
-                Write-Host "  $esc[90mCleaning leftover files...$esc[0m"
-                $null = Remove-SafeItem -Path $folder -Description "Leftover files" -Recurse
+                Write-Host "  $esc[90mMoving leftover files to Recycle Bin...$esc[0m"
+                $null = Remove-SafeItem -Path $folder -Description "Leftover files to Recycle Bin" -Recurse -Recycle
             }
         }
         catch {

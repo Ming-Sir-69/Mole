@@ -355,6 +355,96 @@ function Remove-SafeDirectoryTree {
     }
 }
 
+# The shell has a dedicated recycle operation, separate from permanent deletion.
+function Move-MoleItemToRecycleBin {
+    param([string]$Path, $Snapshot)
+
+    if (-not ('Mole.RecycleOnly' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+namespace Mole {
+    public static class RecycleOnly {
+        // ITransferSource exposes recycling separately from permanent removal.
+        // We never call RemoveItem or fall back to another deletion API.
+        public static string Move(string path) {
+            string destination = null;
+            Exception failure = null;
+            Thread thread = new Thread(new ThreadStart(delegate {
+                try { destination = Recycle(path); } catch (Exception ex) { failure = ex; }
+            }));
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            thread.Join();
+            if (failure != null) throw new IOException("Could not recycle the leftover.", failure);
+            return destination;
+        }
+        private static string Recycle(string path) {
+            if (!Path.IsPathRooted(path) || new DriveInfo(Path.GetPathRoot(path)).DriveType != DriveType.Fixed)
+                throw new IOException("A local fixed drive is required.");
+            IShellItem item = null, parent = null, bin = null, recycled = null;
+            object handler = null;
+            try {
+                Guid shellItem = typeof(IShellItem).GUID;
+                Check(SHCreateItemFromParsingName(path, IntPtr.Zero, ref shellItem, out item));
+                item.GetParent(out parent);
+                Check(SHCreateItemFromParsingName("::{645FF040-5081-101B-9F08-00AA002F954E}", IntPtr.Zero, ref shellItem, out bin));
+                Guid binding = new Guid("D5E346A1-F753-4932-B403-4574800E2498");
+                Guid transfer = typeof(ITransferSource).GUID;
+                parent.BindToHandler(IntPtr.Zero, ref binding, ref transfer, out handler);
+                int result = ((ITransferSource)handler).RecycleItem(item, bin, 0, out recycled);
+                Check(result);
+                if (recycled == null || File.Exists(path) || Directory.Exists(path))
+                    throw new IOException("Recycling was not completed.");
+                IntPtr name;
+                recycled.GetDisplayName(0x80058000, out name);
+                try { return Marshal.PtrToStringUni(name); } finally { Marshal.FreeCoTaskMem(name); }
+            } finally {
+                Release(recycled); Release(handler); Release(bin); Release(parent); Release(item);
+            }
+        }
+        private static void Check(int result) { if (result < 0) Marshal.ThrowExceptionForHR(result); }
+        private static void Release(object value) { if (value != null) Marshal.ReleaseComObject(value); }
+        [DllImport("shell32.dll", CharSet=CharSet.Unicode, PreserveSig=true)]
+        private static extern int SHCreateItemFromParsingName(string path, IntPtr context, ref Guid iid, out IShellItem item);
+        [ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IShellItem {
+            void BindToHandler(IntPtr context, ref Guid handler, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out object value);
+            void GetParent(out IShellItem parent);
+            void GetDisplayName(uint kind, out IntPtr name);
+            void GetAttributes(uint mask, out uint attributes);
+            void Compare(IShellItem other, uint hint, out int order);
+        }
+        [ComImport, Guid("00ADB003-BDE9-45C6-8E29-D09F9353E108"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface ITransferSource {
+            void Advise(IntPtr sink, out uint cookie);
+            void Unadvise(uint cookie);
+            void SetProperties(IntPtr changes);
+            void OpenItem(IShellItem item, uint flags, ref Guid iid, out IntPtr value);
+            void MoveItem(IShellItem item, IShellItem destination, [MarshalAs(UnmanagedType.LPWStr)] string name, uint flags, out IShellItem moved);
+            [PreserveSig] int RecycleItem(IShellItem item, IShellItem destination, uint flags, out IShellItem recycled);
+        }
+    }
+}
+
+'@ -ErrorAction Stop
+    }
+    # Compilation and sizing may have taken time. Rebind the source and apply
+    # the same protection/whitelist checks to its current children before moving.
+    if (-not (Test-SafePath $Path) -or -not (Test-MolePathSnapshot $Snapshot)) {
+        throw 'Leftover path changed or is protected.'
+    }
+    if (Test-Path -LiteralPath $Path -PathType Container) {
+        $tree = Get-SafeDirectoryTreeItems -Path $Path
+        if (-not $tree.Success -or -not (Test-MolePathSnapshot $Snapshot)) {
+            throw 'Could not verify the leftover directory.'
+        }
+    }
+    $null = [Mole.RecycleOnly]::Move($Snapshot.Path)
+}
+
 function Remove-SafeItem {
     <#
     .SYNOPSIS
@@ -376,6 +466,8 @@ function Remove-SafeItem {
         
         [switch]$Recurse,
 
+        [switch]$Recycle,
+
         [scriptblock]$Guard = $null
     )
     
@@ -391,7 +483,7 @@ function Remove-SafeItem {
         return $false
     }
 
-    $pathSnapshot = Get-MolePathSnapshot -Path $Path -AllowLeafLink
+    $pathSnapshot = Get-MolePathSnapshot -Path $Path -AllowLeafLink:(-not $Recycle)
     if (-not $pathSnapshot) { return $false }
     $isDirectory = Test-Path -LiteralPath $Path -PathType Container
     $validatedTree = $null
@@ -417,7 +509,11 @@ function Remove-SafeItem {
 
     # Handle dry run
     if ($script:MoleDryRunMode) {
-        $script:TotalSizeCleaned += $sizeKB
+        if ($Recycle -and $isDirectory) {
+            $previewTree = Get-SafeDirectoryTreeItems -Path $Path
+            if (-not $previewTree.Success -or -not (Test-MolePathSnapshot $pathSnapshot)) { return $false }
+        }
+        if (-not $Recycle) { $script:TotalSizeCleaned += $sizeKB }
         $script:FilesCleaned++
         $script:TotalItems++
         $name = if ($Description) { $Description } else { Split-Path -Leaf $Path }
@@ -429,7 +525,10 @@ function Remove-SafeItem {
     
     # Perform removal
     try {
-        if ($isDirectory) {
+        if ($Recycle) {
+            Move-MoleItemToRecycleBin -Path $Path -Snapshot $pathSnapshot
+        }
+        elseif ($isDirectory) {
             if (-not (Remove-SafeDirectoryTree -Path $Path -ValidatedTree $validatedTree)) {
                 return $false
             }
@@ -439,7 +538,7 @@ function Remove-SafeItem {
         }
         
         # Update statistics
-        $script:TotalSizeCleaned += $sizeKB
+        if (-not $Recycle) { $script:TotalSizeCleaned += $sizeKB }
         $script:FilesCleaned++
         $script:TotalItems++
         
@@ -452,6 +551,7 @@ function Remove-SafeItem {
     }
     catch {
         Write-Debug "Failed to remove $Path : $_"
+        if ($Recycle) { Write-Warning "Could not recycle $Path. Review the remaining files manually." }
         return $false
     }
 }

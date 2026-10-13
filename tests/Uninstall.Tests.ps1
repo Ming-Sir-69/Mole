@@ -280,7 +280,7 @@ Describe "Uninstalling registry apps" {
         Should -Invoke Write-Host -ParameterFilter { "$Object" -like "*still installed, exit code 1*" }
     }
 
-    It "Removes the install folder once the uninstall entry is gone" {
+    It "Recycles the install folder once the uninstall entry is gone" {
         $app = [PSCustomObject]@{
             Name = "Contoso Tool"; Source = "Registry"; UninstallString = "`"$script:Uninstaller`""
             InstallLocation = $script:AppFolder; RegistryKey = $script:GoneKey; PackageFullName = $null
@@ -288,7 +288,7 @@ Describe "Uninstalling registry apps" {
 
         Uninstall-SelectedApps -Apps @($app)
 
-        Should -Invoke Remove-SafeItem -Times 1 -Exactly -ParameterFilter { $Path -eq $script:AppFolder }
+        Should -Invoke Remove-SafeItem -Times 1 -Exactly -ParameterFilter { $Path -eq $script:AppFolder -and $Recycle }
     }
 
     It "Never removes a profile or system folder named as the install location" {
@@ -415,7 +415,7 @@ Describe "Uninstall dry run leftovers" {
 
         Uninstall-SelectedApps -Apps @($app)
 
-        Should -Invoke Remove-SafeItem -Times 1 -Exactly -ParameterFilter { $Path -eq $folder }
+        Should -Invoke Remove-SafeItem -Times 1 -Exactly -ParameterFilter { $Path -eq $folder -and $Recycle }
     }
 }
 
