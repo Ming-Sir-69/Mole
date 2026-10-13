@@ -52,7 +52,7 @@ The checks have specific limits:
 
 - Go formatting and PowerShell parsing are enforced. `golangci-lint` is advisory through `continue-on-error`; a green workflow does not prove a clean lint result.
 - The unsafe-removal and secret-pattern steps print findings without failing. They are review prompts, not enforced security gates or a comprehensive secret scanner.
-- Most recycle and uninstall tests use mocked sinks. `TestRecycleBinIntegration` is opt-in and requires an explicit disposable fixture. It is skipped by default.
+- Most recycle and uninstall tests use mocked sinks. `TestRecycleBinIntegration` is opt-in and requires an explicit disposable fixture. It is skipped by default. A separate ThinkPad run passed the real file/junction/directory recycle cases and PowerShell preview/recycle/restore checks; exact scope is recorded in the [development record](docs/development-record.md).
 - A Parallels run and a GitHub-hosted Windows run do not establish ThinkPad acceptance. Record the actual machine, tested revision, runtime versions, test summaries, exit codes and skipped cases before making that claim.
 - Interactive shell/Recycle Bin behavior, real UAC and third-party uninstallers, Defender/SmartScreen and signed distribution remain separate acceptance surfaces.
 
