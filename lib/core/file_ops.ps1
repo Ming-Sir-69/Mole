@@ -21,6 +21,7 @@ $script:MoleDryRunMode = $env:MOLE_DRY_RUN -eq "1"
 $script:TotalSizeCleaned = 0
 $script:FilesCleaned = 0
 $script:TotalItems = 0
+$script:OwnerCleanups = 0
 
 # ============================================================================
 # Safety Validation Functions
@@ -805,6 +806,7 @@ function Get-CleanupStats {
         TotalSizeHuman = Format-ByteSize -Bytes ($script:TotalSizeCleaned * 1024)
         FilesCleaned  = $script:FilesCleaned
         TotalItems    = $script:TotalItems
+        OwnerCleanups = $script:OwnerCleanups
     }
 }
 
@@ -816,6 +818,7 @@ function Reset-CleanupStats {
     $script:TotalSizeCleaned = 0
     $script:FilesCleaned = 0
     $script:TotalItems = 0
+    $script:OwnerCleanups = 0
 }
 
 function Set-DryRunMode {

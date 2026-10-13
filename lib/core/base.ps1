@@ -425,13 +425,12 @@ function Test-ProtectedPath {
 function Test-WhitelistPattern {
     param([string]$Path, [string]$Pattern)
 
-    if ($Path -like $Pattern) { return $true }
-    # A literal directory entry protects its descendants, not prefix siblings.
-    if (-not [System.Management.Automation.WildcardPattern]::ContainsWildcardCharacters($Pattern)) {
-        $root = $Pattern.TrimEnd('\')
-        return $Path.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)
-    }
-    return $false
+    # A copied filesystem path may contain valid literal brackets. Check its
+    # spelling first; wildcard interpretation must not revoke that protection.
+    $root = $Pattern.TrimEnd('\')
+    if ([string]::Equals($Path.TrimEnd('\'), $root, [StringComparison]::OrdinalIgnoreCase) -or
+        $Path.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    return $Path -like $Pattern
 }
 
 function Test-Whitelisted {

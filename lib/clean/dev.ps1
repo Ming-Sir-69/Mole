@@ -104,7 +104,11 @@ function Invoke-MoleOwnerCacheCleanup {
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return }
     }
     if (Test-DryRunMode) {
+        # Selective owner pruning cannot promise the size of the whole store.
+        Add-DryRunListEntries -Description $Description -Paths @($path)
+        $script:OwnerCleanups++
         Write-DryRun $Description
+        Set-SectionActivity
         return
     }
     # Query again at the boundary; a changed configuration is not the previewed root.
@@ -116,8 +120,26 @@ function Invoke-MoleOwnerCacheCleanup {
         if (-not (Test-SafePath $item.FullName) -or
             -not (Test-MolePathSnapshot $item.MolePathSnapshot)) { return }
     }
+    $beforeFiles = @($tree.Items | Where-Object { -not $_.PSIsContainer })
+    $beforeBytes = 0L
+    foreach ($file in $beforeFiles) { $beforeBytes += $file.Length }
     $result = Invoke-MoleOwnerProcess -Name $Name -Arguments $Arguments -TimeoutSeconds 120
     if ($null -ne $result) {
+        $script:OwnerCleanups++
+        # Count only a complete before/after measurement of the same root.
+        # Missing or replaced roots are unmeasured, never assumed empty.
+        if (Test-MolePathSnapshot $snapshot) {
+            $after = Get-SafeDirectoryTreeItems -Path $path
+            if ($after.Success -and (Test-MolePathSnapshot $snapshot)) {
+                $afterFiles = @($after.Items | Where-Object { -not $_.PSIsContainer })
+                $afterBytes = 0L
+                foreach ($file in $afterFiles) { $afterBytes += $file.Length }
+                $removedBytes = [Math]::Max(0, [long]$beforeBytes - [long]$afterBytes)
+                $script:TotalSizeCleaned += [Math]::Floor($removedBytes / 1024)
+                $script:FilesCleaned += [Math]::Max(0, $beforeFiles.Count - $afterFiles.Count)
+                if ($removedBytes -gt 0) { $script:TotalItems++ }
+            }
+        }
         Write-Success $Description
         Set-SectionActivity
     }

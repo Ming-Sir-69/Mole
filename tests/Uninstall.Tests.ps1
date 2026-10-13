@@ -245,6 +245,7 @@ Describe "Uninstalling registry apps" {
         Mock Write-Host {}
         Mock Start-Process { [PSCustomObject]@{ ExitCode = 1 } }
         Mock Remove-SafeItem { $true }
+        Mock Get-MoleInstallOwners { @{ Complete = $true; Owners = @() } }
         Mock Remove-AppxPackage { throw "Remove-AppxPackage must not run" }
 
         $script:AppFolder = New-TestFolder -Name "Contoso Tool"
@@ -388,6 +389,7 @@ Describe "Uninstall dry run leftovers" {
         Mock Write-Host {}
         Mock Start-Process { throw "Start-Process must not run in a dry run" }
         Mock Remove-SafeItem { $true }
+        Mock Get-MoleInstallOwners { @{ Complete = $true; Owners = @() } }
     }
 
     AfterEach {
@@ -585,5 +587,101 @@ Describe "Selecting apps that share a name" {
 
         $selected.Count | Should -Be 1
         $selected[0].RegistryKey | Should -Be "HKLM-test\first"
+    }
+}
+
+
+Describe 'Leftover install folder ownership' {
+    BeforeAll {
+        # The stub lets the pre-fix command run the same behavior fixtures.
+        if (-not (Get-Command Get-MoleInstallOwners -ErrorAction SilentlyContinue)) {
+            function Get-MoleInstallOwners { @{ Complete = $true; Owners = @() } }
+        }
+    }
+    BeforeEach {
+        $script:SharedFolder = New-TestFolder -Name 'Shared Vendor'
+        $script:SelectedApp = [pscustomobject]@{
+            Name = 'Tool A'; Source = 'Registry'; InstallLocation = $script:SharedFolder
+            RegistryKey = 'selected-key'; UninstallString = 'mock.exe'; PackageFullName = $null
+        }
+        $script:Owners = @()
+        Mock Get-MoleInstallOwners { @{ Complete = $true; Owners = $script:Owners } }
+        Mock Get-UninstallLaunch { @{ FilePath = 'mock.exe'; Arguments = '' } }
+        Mock Start-Process { [pscustomobject]@{ ExitCode = 0 } }
+        Mock Test-UninstallEntryGone { $true }
+        Mock Remove-SafeItem { $true }
+        Mock Write-Host {}
+        Set-DryRunMode -Enabled $false
+    }
+    AfterEach { Set-DryRunMode -Enabled $false }
+
+    It 'Keeps a surviving <Relation> owner in preview and real uninstall' -TestCases @(
+        @{ Relation = 'same'; Relative = '' }
+        @{ Relation = 'child'; Relative = 'Tool B' }
+        @{ Relation = 'parent'; Relative = '..' }
+    ) {
+        param($Relation, $Relative)
+        $ownerPath = if ($Relative) { [IO.Path]::GetFullPath((Join-Path $script:SharedFolder $Relative)) } else { $script:SharedFolder }
+        $script:Owners = @(@{ Path = $ownerPath; Key = 'other-key' })
+        Uninstall-SelectedApps @($script:SelectedApp)
+        Set-DryRunMode -Enabled $true
+        Uninstall-SelectedApps @($script:SelectedApp)
+        Should -Invoke Remove-SafeItem -Times 0 -Exactly
+    }
+    It 'Keeps leftovers when the ownership inventory is incomplete' {
+        Mock Get-MoleInstallOwners { @{ Complete = $false; Owners = @() } }
+        Uninstall-SelectedApps @($script:SelectedApp)
+        Set-DryRunMode -Enabled $true
+        Uninstall-SelectedApps @($script:SelectedApp)
+        Should -Invoke Remove-SafeItem -Times 0 -Exactly
+    }
+    It 'Allows an independent prefix sibling and ignores only the selected preview key' {
+        $script:Owners = @(@{ Path = $script:SharedFolder + '-other'; Key = 'other-key' })
+        Uninstall-SelectedApps @($script:SelectedApp)
+        $script:Owners += @{ Path = $script:SharedFolder; Key = 'selected-key' }
+        Set-DryRunMode -Enabled $true
+        Uninstall-SelectedApps @($script:SelectedApp)
+        Should -Invoke Remove-SafeItem -Times 2 -Exactly
+    }
+    It 'Rechecks ownership in the final removal guard' {
+        $script:GuardResult = $true
+        Mock Remove-SafeItem {
+            param($Path, $Guard)
+            $script:Owners = @(@{ Path = $Path; Key = 'new-owner' })
+            if ($null -ne $Guard) { $script:GuardResult = & $Guard $Path }
+            return $false
+        }
+        Uninstall-SelectedApps @($script:SelectedApp)
+        Should -Invoke Remove-SafeItem -Times 1 -Exactly
+        $script:GuardResult | Should -BeFalse
+    }
+}
+
+
+Describe 'Complete install owner probes' {
+    BeforeEach {
+        Mock Get-Item { [pscustomobject]@{} } -ParameterFilter { $LiteralPath -like 'HK*' }
+        Mock Get-ChildItem { @() } -ParameterFilter { $LiteralPath -like 'HK*' }
+        Mock Get-AppxPackage { @() }
+    }
+    It 'Includes hidden registered components without applying the menu filter' {
+        Mock Get-ChildItem { @([pscustomobject]@{ PSPath = 'owner-entry' }) } -ParameterFilter { $LiteralPath -like 'HK*' }
+        Mock Get-ItemProperty { [pscustomobject]@{ InstallLocation = 'D:\Tools\Shared'; SystemComponent = 1 } } -ParameterFilter { $LiteralPath -eq 'owner-entry' }
+        $result = Get-MoleInstallOwners
+        $result.Complete | Should -BeTrue
+        @($result.Owners | Where-Object { $_.Path -eq 'D:\Tools\Shared' }).Count | Should -Be 4
+    }
+    It 'Reports registry read failures as incomplete' {
+        Mock Get-ChildItem { throw 'unreadable registry' } -ParameterFilter { $LiteralPath -like 'HK*' }
+        (Get-MoleInstallOwners).Complete | Should -BeFalse
+    }
+    It 'Reports Store enumeration failures as incomplete' {
+        Mock Get-AppxPackage { throw 'package inventory unavailable' }
+        (Get-MoleInstallOwners).Complete | Should -BeFalse
+    }
+    It 'Allows an empty complete inventory' {
+        $result = Get-MoleInstallOwners
+        $result.Complete | Should -BeTrue
+        @($result.Owners).Count | Should -Be 0
     }
 }

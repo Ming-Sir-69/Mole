@@ -92,55 +92,9 @@ function Clear-WindowsLogs {
 # ============================================================================
 
 function Clear-WindowsUpdateFiles {
-    <#
-    .SYNOPSIS
-        Clean Windows Update download cache (requires admin)
-    #>
-
-    if (-not (Test-IsAdmin)) {
-        Write-Debug "Skipping Windows Update cleanup - requires admin"
-        return
-    }
-
-    # Stop Windows Update service
-    $wuService = Get-Service -Name wuauserv -ErrorAction SilentlyContinue
-    $wasRunning = $wuService.Status -eq 'Running'
-
-    if ($wasRunning) {
-        if (Test-DryRunMode) {
-            Write-DryRun "Windows Update cache (service would be restarted)"
-            return
-        }
-
-        try {
-            Stop-Service -Name wuauserv -Force -ErrorAction Stop
-        }
-        catch {
-            Write-Debug "Could not stop Windows Update service: $_"
-            return
-        }
-    }
-
-    try {
-        # Clean download cache
-        $wuDownloadPath = "$env:WINDIR\SoftwareDistribution\Download"
-        if (Test-Path $wuDownloadPath) {
-            Clear-DirectoryContents -Path $wuDownloadPath -Description "Windows Update download cache"
-        }
-
-        # Clean DataStore (old update history - be careful!)
-        # Only clean temp files, not the actual database
-        $wuDataStore = "$env:WINDIR\SoftwareDistribution\DataStore\Logs"
-        if (Test-Path $wuDataStore) {
-            Clear-DirectoryContents -Path $wuDataStore -Description "Windows Update logs"
-        }
-    }
-    finally {
-        # Always restart service if it was running, even if cleanup failed
-        if ($wasRunning) {
-            Start-Service -Name wuauserv -ErrorAction SilentlyContinue
-        }
-    }
+    # Windows owns these protected files. Restarting its service cannot make
+    # them eligible for Mole cleanup and must not change a stopped service.
+    return
 }
 
 # ============================================================================
@@ -254,41 +208,9 @@ function Clear-MemoryDumps {
 # ============================================================================
 
 function Clear-SystemFontCache {
-    <#
-    .SYNOPSIS
-        Clear Windows font cache (requires admin and may need restart)
-    #>
-
-    if (-not (Test-IsAdmin)) {
-        return
-    }
-
-    $fontCacheService = Get-Service -Name "FontCache" -ErrorAction SilentlyContinue
-
-    if ($fontCacheService) {
-        if (Test-DryRunMode) {
-            Write-DryRun "System font cache"
-            return
-        }
-
-        try {
-            # Stop font cache service
-            Stop-Service -Name "FontCache" -Force -ErrorAction SilentlyContinue
-
-            # Clear font cache files
-            $fontCachePath = "$env:WINDIR\ServiceProfiles\LocalService\AppData\Local\FontCache"
-            if (Test-Path $fontCachePath) {
-                Clear-DirectoryContents -Path $fontCachePath -Description "System font cache"
-            }
-
-            # Restart font cache service
-            Start-Service -Name "FontCache" -ErrorAction SilentlyContinue
-        }
-        catch {
-            Write-Debug "Font cache cleanup failed: $_"
-            Start-Service -Name "FontCache" -ErrorAction SilentlyContinue
-        }
-    }
+    # Windows owns these protected files. Restarting its service cannot make
+    # them eligible for Mole cleanup and must not change a stopped service.
+    return
 }
 
 # ============================================================================
@@ -392,17 +314,11 @@ function Invoke-SystemCleanup {
     # Windows logs
     Clear-WindowsLogs -DaysOld 7
 
-    # Windows Update cache
-    Clear-WindowsUpdateFiles
-
     # Installer cache
     Clear-InstallerCache
 
     # Memory dumps
     Clear-MemoryDumps
-
-    # Font cache
-    Clear-SystemFontCache
 
     # Optional: Component Store (can take a long time)
     if ($IncludeComponentStore) {

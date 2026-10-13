@@ -340,3 +340,83 @@ Describe "Junctions and symbolic links" {
         Get-PathSize -Path $folder | Should -BeLessThan 100
     }
 }
+
+Describe "Owner cache accounting" {
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Root -Force | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $script:Root 'gone.bin'), (New-Object byte[] 4096))
+        [IO.File]::WriteAllBytes((Join-Path $script:Root 'kept.bin'), (New-Object byte[] 2048))
+        Reset-CleanupStats
+        Set-DryRunMode -Enabled $false
+        $script:ExportListFile = Join-Path $TestDrive 'owner-preview.txt'
+        Mock Get-MoleOwnerCachePath { $script:Root }
+        Mock Invoke-MoleOwnerProcess { [pscustomobject]@{ Output = '' } }
+    }
+    AfterEach {
+        Set-DryRunMode -Enabled $true
+        Remove-Variable ExportListFile -Scope Script -ErrorAction SilentlyContinue
+    }
+    It "Exports the owner root without claiming the whole store will be pruned" {
+        Set-DryRunMode -Enabled $true
+        Invoke-MoleOwnerCacheCleanup -Name fixture -Query @('path') -Arguments @('prune') -Description 'Fixture cache'
+        Get-Content $script:ExportListFile | Should -Contain $script:Root
+        $stats = Get-CleanupStats
+        $stats.OwnerCleanups | Should -Be 1
+        $stats.TotalSizeKB | Should -Be 0
+        Should -Invoke Invoke-MoleOwnerProcess -Times 0 -Exactly
+    }
+    It "Measures only the space removed by a successful partial prune" {
+        Mock Invoke-MoleOwnerProcess {
+            Remove-Item -LiteralPath (Join-Path $script:Root 'gone.bin')
+            [pscustomobject]@{ Output = '' }
+        }
+        Invoke-MoleOwnerCacheCleanup -Name fixture -Query @('path') -Arguments @('prune') -Description 'Fixture cache'
+        $stats = Get-CleanupStats
+        $stats.OwnerCleanups | Should -Be 1
+        $stats.TotalSizeKB | Should -Be 4
+        $stats.FilesCleaned | Should -Be 1
+        Test-Path (Join-Path $script:Root 'kept.bin') | Should -BeTrue
+    }
+    It "Does not report bytes for an unchanged cache" {
+        Invoke-MoleOwnerCacheCleanup -Name fixture -Query @('path') -Arguments @('prune') -Description 'Fixture cache'
+        (Get-CleanupStats).TotalSizeKB | Should -Be 0
+        (Get-CleanupStats).OwnerCleanups | Should -Be 1
+    }
+    It "Handles an empty owner cache without a missing Sum property" {
+        Remove-Item -LiteralPath (Join-Path $script:Root 'gone.bin'), (Join-Path $script:Root 'kept.bin')
+        { Invoke-MoleOwnerCacheCleanup -Name fixture -Query @('path') -Arguments @('prune') -Description 'Fixture cache' } | Should -Not -Throw
+        (Get-CleanupStats).TotalSizeKB | Should -Be 0
+    }
+    It "Does not assume an unmeasurable post-cleanup tree is empty" {
+        $script:WalkCount = 0
+        Mock Get-SafeDirectoryTreeItems {
+            $script:WalkCount++
+            if ($script:WalkCount -eq 1) {
+                return @{ Success = $true; Items = @(Get-ChildItem -LiteralPath $script:Root | ForEach-Object {
+                    $_ | Add-Member -NotePropertyName MolePathSnapshot -NotePropertyValue (Get-MolePathSnapshot $_.FullName) -PassThru
+                }) }
+            }
+            return @{ Success = $false; Items = @() }
+        }
+        Invoke-MoleOwnerCacheCleanup -Name fixture -Query @('path') -Arguments @('prune') -Description 'Fixture cache'
+        (Get-CleanupStats).TotalSizeKB | Should -Be 0
+        (Get-CleanupStats).OwnerCleanups | Should -Be 1
+    }
+    It "Does not count a failed owner command" {
+        Mock Invoke-MoleOwnerProcess { $null }
+        Invoke-MoleOwnerCacheCleanup -Name fixture -Query @('path') -Arguments @('prune') -Description 'Fixture cache'
+        (Get-CleanupStats).OwnerCleanups | Should -Be 0
+        (Get-CleanupStats).TotalSizeKB | Should -Be 0
+    }
+    It "Keeps owner-only activity out of the already-clean summary" {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:WindowsDir 'bin\clean.ps1'), [ref]$null, [ref]$null)
+        $definition = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-CleanupSummary' }, $true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        Mock Get-FreeSpace { '10 GB' }
+        Invoke-MoleOwnerCacheCleanup -Name fixture -Query @('path') -Arguments @('prune') -Description 'Fixture cache'
+        $output = Show-CleanupSummary -Stats (Get-CleanupStats) -IsDryRun $false 6>&1 | Out-String
+        $output | Should -Not -Match 'already clean'
+        $output | Should -Match 'Tool cache cleanup completed'
+    }
+}

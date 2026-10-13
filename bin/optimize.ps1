@@ -283,6 +283,7 @@ function Optimize-Network {
     try {
         # Flush ARP cache
         $null = netsh interface ip delete arpcache 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "netsh exited with code $LASTEXITCODE" }
         Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m ARP cache cleared"
         $script:OptimizationsApplied++
     }

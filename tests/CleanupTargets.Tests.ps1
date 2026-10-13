@@ -3,6 +3,7 @@ BeforeAll {
     $root = Split-Path -Parent $PSScriptRoot
     . "$root\lib\clean\user.ps1"
     . "$root\lib\clean\caches.ps1"
+    . "$root\lib\clean\system.ps1"
     $script:SavedAppData = $env:APPDATA
     $script:SavedLocalAppData = $env:LOCALAPPDATA
     $env:APPDATA = Join-Path $TestDrive 'Roaming'
@@ -47,5 +48,30 @@ Describe 'Conservative cleanup targets' {
         Should -Invoke Clear-UserTempFiles -Times 1 -Exactly
         Should -Invoke Remove-SafeItems -Times 0 -Exactly
         Should -Invoke Remove-SafeItem -Times 0 -Exactly
+    }
+}
+
+
+Describe 'Protected system cleanup does not disturb services' {
+    BeforeEach {
+        Mock Test-IsAdmin { $true }
+        Mock Test-DryRunMode { $false }
+        Mock Get-Service { [pscustomobject]@{ Status = 'Stopped' } }
+        Mock Stop-Service {}
+        Mock Start-Service {}
+        Mock Clear-DirectoryContents {}
+    }
+    It 'Leaves a stopped font service stopped and does not attempt protected cleanup' {
+        Clear-SystemFontCache
+        Should -Invoke Stop-Service -Times 0 -Exactly
+        Should -Invoke Start-Service -Times 0 -Exactly
+        Should -Invoke Clear-DirectoryContents -Times 0 -Exactly
+    }
+    It 'Does not restart Windows Update for protected directories' {
+        Mock Get-Service { [pscustomobject]@{ Status = 'Running' } }
+        Clear-WindowsUpdateFiles
+        Should -Invoke Stop-Service -Times 0 -Exactly
+        Should -Invoke Start-Service -Times 0 -Exactly
+        Should -Invoke Clear-DirectoryContents -Times 0 -Exactly
     }
 }

@@ -51,7 +51,7 @@ Describe "mo optimize steps" {
         Mock Get-Volume { [pscustomobject]@{ DriveLetter = "C" } }
         Mock Optimize-Volume { }
         Mock Clear-DnsClientCache { }
-        Mock netsh { }
+        Mock netsh { $global:LASTEXITCODE = 0 }
         Mock Start-Sleep { }
         Mock Get-Service { throw "Get-Service must not run" }
         Mock Stop-Service { }
@@ -122,5 +122,25 @@ Describe "mo optimize steps" {
         foreach ($name in @("Repair-FontCache", "Repair-IconCache", "Repair-SearchIndex", "Repair-StoreCache")) {
             $script:OptimizeFunctionNames | Should -Not -Contain $name
         }
+    }
+}
+
+Describe "Native optimization outcomes" {
+    BeforeEach {
+        $script:OptimizationsApplied = 0
+        $script:DryRun = $false
+        Mock Test-IsAdmin { $true }
+    }
+    It "Does not count a failing native ARP operation as applied" {
+        Mock netsh { $global:LASTEXITCODE = 5 }
+        $output = Optimize-Network 6>&1 | Out-String
+        $script:OptimizationsApplied | Should -Be 0
+        $output | Should -Not -Match 'ARP cache cleared'
+        $output | Should -Match 'ARP cache clear failed'
+    }
+    It "Counts a successful native ARP operation" {
+        Mock netsh { $global:LASTEXITCODE = 0 }
+        Optimize-Network 6>$null
+        $script:OptimizationsApplied | Should -Be 1
     }
 }

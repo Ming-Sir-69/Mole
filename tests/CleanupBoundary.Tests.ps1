@@ -79,6 +79,17 @@ Describe 'Cleanup physical boundaries' {
     }
 }
 
+
+Describe 'Literal bracket whitelist paths' {
+    It 'Protects the exact bracket path and its children without matching siblings' {
+        $root = Join-Path $TestDrive '[demo]\cache'
+        Test-WhitelistPattern $root $root | Should -BeTrue
+        Test-WhitelistPattern ($root + '\keep.txt') $root | Should -BeTrue
+        Test-WhitelistPattern ($root + '-other\keep.txt') $root | Should -BeFalse
+        Test-WhitelistPattern (Join-Path $TestDrive 'other\cache') (Join-Path $TestDrive '*\cache') | Should -BeTrue
+    }
+}
+
 Describe 'Owner cache cleanup whitelist' {
     BeforeAll {
         function npm { }

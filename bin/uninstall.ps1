@@ -198,6 +198,64 @@ function Test-MoleInstallFolder {
     return (Test-Path -LiteralPath $folder -PathType Container)
 }
 
+# Read ownership separately from the display inventory: hidden components and
+# duplicate keys still own files, and an incomplete scan is never absence.
+function Get-MoleInstallOwners {
+    $owners = @()
+    $roots = @(
+        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+        'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+        'HKCU:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )
+    try {
+        foreach ($root in $roots) {
+            try { $null = Get-Item -LiteralPath $root -ErrorAction Stop }
+            catch [System.Management.Automation.ItemNotFoundException] { continue }
+            foreach ($key in @(Get-ChildItem -LiteralPath $root -ErrorAction Stop)) {
+                $entry = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop
+                $raw = [string](Get-MoleProperty $entry 'InstallLocation')
+                if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+                $path = Get-NormalizedFolderPath $raw
+                if (-not $path) { throw 'Unresolved install ownership path' }
+                $owners += @{ Path = $path; Key = $key.PSPath }
+            }
+        }
+        foreach ($package in @(Get-AppxPackage -ErrorAction Stop)) {
+            $raw = [string](Get-MoleProperty $package 'InstallLocation')
+            if ([string]::IsNullOrWhiteSpace($raw)) { continue }
+            $path = Get-NormalizedFolderPath $raw
+            if (-not $path) { throw 'Unresolved package ownership path' }
+            $owners += @{ Path = $path; Key = '' }
+        }
+        return @{ Complete = $true; Owners = $owners }
+    }
+    catch {
+        Write-Debug "Could not verify install folder ownership: $_"
+        return @{ Complete = $false; Owners = @() }
+    }
+}
+
+function Test-MoleLeftoverOwnership {
+    param([string]$Path, $App, [switch]$Preview)
+
+    if (-not (Test-MoleInstallFolder $Path)) { return $false }
+    $folder = Get-NormalizedFolderPath $Path
+    $key = [string](Get-MoleProperty $App 'RegistryKey')
+    if (-not $Preview -and -not (Test-UninstallEntryGone $key)) { return $false }
+    $inventory = Get-MoleInstallOwners
+    if (-not $inventory.Complete) { return $false }
+    foreach ($owner in $inventory.Owners) {
+        if ($Preview -and $key -and $owner.Key -eq $key) { continue }
+        if ($folder -eq $owner.Path -or
+            $folder.StartsWith($owner.Path + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            $owner.Path.StartsWith($folder + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Test-UninstallEntryFlag {
     param($Entry, [string]$Name)
 
@@ -920,8 +978,9 @@ function Uninstall-SelectedApps {
             Write-Host "$esc[34m$($script:Icons.Arrow)$esc[0m $($app.Name)"
             Write-Host "  $esc[90mWould uninstall with $(Get-UninstallMethodDescription -App $app)$esc[0m"
             $folder = [string](Get-MoleProperty $app 'InstallLocation')
-            if ($app.Source -ne "WindowsStore" -and (Test-MoleInstallFolder -Path $folder)) {
-                $null = Remove-SafeItem -Path $folder -Description "Leftover files to Recycle Bin" -Recurse -Recycle
+            if ($app.Source -ne "WindowsStore" -and (Test-MoleLeftoverOwnership -Path $folder -App $app -Preview)) {
+                $guard = { param($candidate) Test-MoleLeftoverOwnership -Path $candidate -App $app -Preview }
+                $null = Remove-SafeItem -Path $folder -Description "Leftover files to Recycle Bin" -Recurse -Recycle -Guard $guard
             }
         }
         Write-Host ""
@@ -981,9 +1040,10 @@ function Uninstall-SelectedApps {
 
             # Clean leftover files
             $folder = [string](Get-MoleProperty $app 'InstallLocation')
-            if (Test-MoleInstallFolder -Path $folder) {
+            if (Test-MoleLeftoverOwnership -Path $folder -App $app) {
                 Write-Host "  $esc[90mMoving leftover files to Recycle Bin...$esc[0m"
-                $null = Remove-SafeItem -Path $folder -Description "Leftover files to Recycle Bin" -Recurse -Recycle
+                $guard = { param($candidate) Test-MoleLeftoverOwnership -Path $candidate -App $app }
+                $null = Remove-SafeItem -Path $folder -Description "Leftover files to Recycle Bin" -Recurse -Recycle -Guard $guard
             }
         }
         catch {

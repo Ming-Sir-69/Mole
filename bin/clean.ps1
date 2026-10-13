@@ -158,6 +158,15 @@ function Show-CleanupSummary {
             Write-Host "  Free space now: $(Get-FreeSpace)"
         }
     }
+    elseif ($Stats.ContainsKey('OwnerCleanups') -and $Stats.OwnerCleanups -gt 0) {
+        if ($IsDryRun) {
+            Write-Host "  Tool caches are listed for review."
+            Write-Host "  Detailed list: $esc[90m$($script:ExportListFile)$esc[0m"
+        }
+        else {
+            Write-Host "  Tool cache cleanup completed."
+        }
+    }
     else {
         if ($IsDryRun) {
             Write-Host "  No significant reclaimable space detected."
