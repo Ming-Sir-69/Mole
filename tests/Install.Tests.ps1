@@ -6,7 +6,7 @@ BeforeAll {
     $script:WindowsDir = Split-Path -Parent $PSScriptRoot
     $installScript = Join-Path $script:WindowsDir "install.ps1"
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($installScript, [ref]$null, [ref]$null)
-    foreach ($name in @("Get-NormalizedPath", "Test-ProtectedInstallRoot", "Get-MoleInstallEntries", "Test-MoleInstallDir", "Uninstall-Mole")) {
+    foreach ($name in @("Get-NormalizedPath", "Test-ProtectedInstallRoot", "Get-MoleInstallEntries", "Get-MoleInstallNestedFiles", "Remove-MoleNestedFiles", "Test-MoleInstallDir", "Uninstall-Mole")) {
         $definition = $ast.Find({
                 param($node)
                 $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
@@ -63,6 +63,52 @@ Describe "install.ps1 -Uninstall" {
         Test-Path (Join-Path $shared "mole.ps1") | Should -BeFalse
         Test-Path (Join-Path $shared "lib") | Should -BeFalse
         Test-Path (Join-Path $shared ".git") | Should -BeFalse
+    }
+
+    It "Removes the docs screenshots Mole ships and the folders they leave empty" {
+        $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
+        New-CliTree -Root $own
+        foreach ($file in Get-MoleInstallNestedFiles) {
+            $path = Join-Path $own $file
+            New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+            Set-Content -Path $path -Value "png"
+        }
+        $InstallDir = $own
+
+        Uninstall-Mole | Should -BeTrue
+
+        Test-Path $own | Should -BeFalse
+    }
+
+    It "Keeps a docs folder that holds the user's own files" {
+        $shared = Join-Path $env:LOCALAPPDATA "Tools"
+        New-CliTree -Root $shared
+        New-Item -ItemType Directory -Path (Join-Path $shared "docs\img") -Force | Out-Null
+        Set-Content -Path (Join-Path $shared "docs\img\mole-windows.png") -Value "png"
+        Set-Content -Path (Join-Path $shared "docs\notes.md") -Value "mine"
+        $InstallDir = $shared
+
+        Uninstall-Mole | Should -BeTrue
+
+        Test-Path (Join-Path $shared "docs\notes.md") | Should -BeTrue
+        Test-Path (Join-Path $shared "docs\img") | Should -BeFalse
+        Test-Path (Join-Path $shared "mole.ps1") | Should -BeFalse
+    }
+
+    It "Knows every top-level entry and docs file the repository ships" {
+        $known = @(Get-MoleInstallEntries)
+        $nested = @(Get-MoleInstallNestedFiles)
+        $roots = @($nested | ForEach-Object { ($_ -split '\\')[0] } | Select-Object -Unique)
+        foreach ($entry in @(Get-ChildItem -LiteralPath $script:WindowsDir -Force)) {
+            ($known -contains $entry.Name -or $roots -contains $entry.Name) | Should -BeTrue -Because "$($entry.Name) must be removable by mo remove"
+        }
+        foreach ($root in $roots) {
+            $base = Join-Path $script:WindowsDir $root
+            foreach ($file in @(Get-ChildItem -LiteralPath $base -Recurse -File -Force)) {
+                $relative = $file.FullName.Substring($script:WindowsDir.TrimEnd('\').Length + 1)
+                $nested | Should -Contain $relative
+            }
+        }
     }
 
     It "Removes a folder that holds only the CLI" {

@@ -549,6 +549,41 @@ function Get-MoleInstallEntries {
     )
 }
 
+# Files Mole ships inside a folder whose name is too common to remove whole:
+# a shared install folder may hold the user's own `docs`. Only these files go,
+# then their folders if nothing else is left in them.
+function Get-MoleInstallNestedFiles {
+    return @(
+        "docs\img\analyze-windows.png", "docs\img\mole-windows.png", "docs\img\status-windows.png"
+    )
+}
+
+function Remove-MoleNestedFiles {
+    param([string]$InstallPath, [string]$Root)
+
+    $files = @(Get-MoleInstallNestedFiles | Where-Object { $_.StartsWith("$Root\", [StringComparison]::OrdinalIgnoreCase) })
+    $folders = @()
+    foreach ($file in $files) {
+        $path = Join-Path $InstallPath $file
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+        }
+        $folder = Split-Path -Parent $file
+        while ($folder) {
+            if ($folders -notcontains $folder) { $folders += $folder }
+            $folder = Split-Path -Parent $folder
+        }
+    }
+    # Deepest first, and only folders left empty.
+    foreach ($folder in @($folders | Sort-Object { $_.Length } -Descending)) {
+        $path = Join-Path $InstallPath $folder
+        if ((Test-Path -LiteralPath $path -PathType Container) -and
+            @(Get-ChildItem -LiteralPath $path -Force).Count -eq 0) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction Stop
+        }
+    }
+}
+
 function Test-MoleInstallDir {
     param([string]$Path)
 
@@ -589,8 +624,20 @@ function Uninstall-Mole {
     # Remove only what Mole installed; another app may share the folder
     # (Mole for Windows keeps its license and settings in %LOCALAPPDATA%\Mole).
     $known = Get-MoleInstallEntries
+    $nestedRoots = @(Get-MoleInstallNestedFiles | ForEach-Object { ($_ -split '\\')[0] } | Select-Object -Unique)
     $kept = @()
     foreach ($entry in @(Get-ChildItem -LiteralPath $installPath -Force)) {
+        if ($nestedRoots -contains $entry.Name) {
+            try {
+                Remove-MoleNestedFiles -InstallPath $installPath -Root $entry.Name
+            }
+            catch {
+                Write-MoleError "Failed to remove $($entry.FullName): $_"
+                return $false
+            }
+            if (Test-Path -LiteralPath $entry.FullName) { $kept += $entry.Name }
+            continue
+        }
         if ($known -notcontains $entry.Name) {
             $kept += $entry.Name
             continue
