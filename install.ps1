@@ -577,8 +577,8 @@ setlocal DisableDelayedExpansion
 function Get-MoleInstallEntries {
     return @(
         ".editorconfig", ".git", ".gitattributes", ".github", ".gitignore", ".golangci.yml", ".shellcheckrc",
-        "AGENTS.md", "CONTRIBUTING.md", "CONTRIBUTORS.svg", "ISSUE-343-SUMMARY.md", "LICENSE", "Makefile",
-        "README.md", "RELEASE.md", "SECURITY.md", "SECURITY_AUDIT.md", "TRADEMARK.md", "VERSION",
+        "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "CONTRIBUTORS.svg", "ISSUE-343-SUMMARY.md", "LICENSE", "Makefile",
+        "README.md", "RELEASE.md", "SECURITY.md", "SECURITY_AUDIT.md", "SYNC.md", "TRADEMARK.md", "VERSION",
         "bin", "cmd", "go.mod", "go.sum", "install.ps1", "lib", "mo.cmd", "mo.exe", "mole.cmd", "mole.ps1",
         "packaging", "quick-install.ps1", "scripts", "tests"
     )

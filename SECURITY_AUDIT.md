@@ -2,6 +2,9 @@
 
 Reviewed on 2026-10-13 against `88cf57e8` on the `windows` branch. This describes the open-source Windows CLI, not the paid Windows app. It follows the macOS CLI audit's structure while documenting Windows-specific controls and limitations. It is a maintainer review, not an independent security certification.
 
+
+Bounded follow-up on 2026-10-14: `0b78b46b` adds unreadable-whitelist retention and preserves Spotify stores; `3a7f8b7b` narrows the Proton Pass command exception. The affected claims below are updated. This is not a new full security audit; regression and delivery evidence is in the development record.
+
 ## Threat Surface
 
 The primary risk is unintended local data loss. Relevant surfaces are automatic cleanup, project-artifact purge, application uninstallers and leftover recycling, Analyze deletion, system maintenance, installation and self-update. Read-only inspection and successful unit tests do not establish that every destructive operation is safe on every Windows installation.
@@ -12,7 +15,7 @@ The primary risk is unintended local data loss. Relevant surfaces are automatic 
 | --- | --- | --- |
 | PowerShell file removal | `Test-SafePath` applies protected paths and the whitelist. `Get-MolePathSnapshot` binds the target and ancestors to volume/file identities; incomplete inspection or replacement retains the target. Directory removal checks descendants and rechecks each entry before removal. | `tests/Core.Tests.ps1`, `tests/CleanupBoundary.Tests.ps1` |
 | Links and shared roots | Linked ancestors are refused. Directory traversal does not follow junction targets. Supported leaf-link removal unlinks the entry without recursively deleting its target. | `tests/CleanupBoundary.Tests.ps1` |
-| Whitelist | Literal paths, including brackets, protect their descendants before wildcard interpretation. Prefix siblings are not descendants. | `tests/CleanupBoundary.Tests.ps1` |
+| Whitelist | Literal paths, including brackets, protect their descendants before wildcard interpretation. Prefix siblings are not descendants. Missing user protection is empty; metadata/content read failure retains targets, and filenames are read literally. | `tests/CleanupBoundary.Tests.ps1` |
 | Owner-managed caches | Owner commands resolve their actual roots, honor exclusions and recheck root identity. Unknown roots or failed commands never fall back to direct deletion. Automatic Docker builder pruning is excluded. | `tests/CleanupTargets.Tests.ps1` |
 | Purge | Generic names require the matching project ecosystem. Git-tracked content, nested repositories and ambiguous probes retain the candidate; discovery and deletion recheck ownership. | `tests/PurgeBoundary.Tests.ps1` |
 | Application leftovers | The registered uninstaller runs first. Leftover recycling requires the selected registration to be gone and a complete inventory with no same, parent or child install-folder owner. Preview and the removal guard both check ownership. | `tests/Uninstall.Tests.ps1` |
@@ -24,7 +27,7 @@ Automatic cleanup generally deletes permanently. Third-party uninstallers retain
 
 ## Protected Data and Privilege
 
-`lib/core/base.ps1` distinguishes protected prefixes from exact protected roots. Windows, Program Files and security-sensitive stores remain protected; the user-profile root is protected without prohibiting all supported child caches. Empty or unparsable paths are refused. During automatic cleanup, additional exclusions cover key/configuration stores, browser state and Claude/Codex transcripts. The native Analyze policy is implemented separately and tested separately, not inferred from the PowerShell helper.
+`lib/core/base.ps1` distinguishes protected prefixes from exact protected roots. Windows, Program Files and security-sensitive stores remain protected; the user-profile root is protected without prohibiting all supported child caches. Empty or unparsable paths are refused. During automatic cleanup, additional exclusions cover key/configuration stores, browser state and Claude/Codex transcripts. Spotify Data and Storage are not automatic cleanup targets because they may contain offline media. The native Analyze policy is implemented separately and tested separately, not inferred from the PowerShell helper.
 
 Literal path handling, no-follow inspection and identity rechecks reduce accidental traversal and replacement risks. These are path-based operations, not an atomic security boundary against a hostile process continuously replacing directory components between the last check and the operating-system call.
 
