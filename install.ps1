@@ -401,6 +401,7 @@ function Ensure-OptionalTuiTools {
 
     foreach ($tool in $tools) {
         $destination = Join-Path $RootDir $tool.Output
+        $hadExisting = Test-Path -LiteralPath $destination
         try {
             $binPath = Ensure-TuiBinary -Name $tool.Name -WindowsDir $RootDir -DestinationPath $destination -SourcePath $tool.Source -Version $version -Refresh:$refreshSourceTools
         }
@@ -413,7 +414,9 @@ function Ensure-OptionalTuiTools {
         }
         else {
             Write-MoleWarning "Could not prepare $($tool.Name).exe. Install Go, or run mo update later to fetch the release build."
-            $failedTools += $tool.Name
+            # Only a tool that stays at an older build is a failed refresh; with
+            # nothing installed yet, the command fetches the release on first use.
+            if ($hadExisting) { $failedTools += $tool.Name }
         }
     }
     if ($refreshSourceTools -and $failedTools.Count -gt 0) {

@@ -47,6 +47,25 @@ Describe 'Source native tool refresh' {
     }
 }
 
+Describe 'Fresh source install without Go' {
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $script:Root 'bin'), (Join-Path $script:Root '.git') -Force | Out-Null
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'go' }
+        Mock Restore-PrebuiltTuiBinary { throw 'A source refresh must not silently use the older tagged binary' }
+    }
+    It 'Warns instead of failing when no tool existed to keep' {
+        { Ensure-OptionalTuiTools -RootDir $script:Root 6>$null 3>$null } | Should -Not -Throw
+        Test-Path -LiteralPath (Join-Path $script:Root 'bin\analyze.exe') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:Root 'bin\status.exe') | Should -BeFalse
+    }
+    It 'Still fails when only one of two existing tools can be refreshed' {
+        Set-Content -LiteralPath (Join-Path $script:Root 'bin\status.exe') -Value 'old'
+        { Ensure-OptionalTuiTools -RootDir $script:Root 6>$null 3>$null } | Should -Throw '*status*'
+        (Get-Content -LiteralPath (Join-Path $script:Root 'bin\status.exe') -Raw).Trim() | Should -Be 'old'
+    }
+}
+
 Describe 'Generated cmd launchers' {
     BeforeEach {
         $script:SourceDir = Join-Path $TestDrive "Bob's tools! & files"
