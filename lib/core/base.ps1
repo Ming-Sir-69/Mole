@@ -433,48 +433,79 @@ function Test-WhitelistPattern {
     return $Path -like $Pattern
 }
 
+# The patterns that protect a path, read once. A caller checking many paths in a
+# row (one tree walk) passes this to Test-Whitelisted instead of rereading the
+# file for every child. Absence is empty; unreadable protection is unknown and
+# retains every target.
+function Get-WhitelistState {
+    $patterns = New-Object System.Collections.Generic.List[string]
+    foreach ($pattern in $script:DefaultWhitelistPatterns) {
+        $patterns.Add([Environment]::ExpandEnvironmentVariables($pattern))
+    }
+
+    $retainAll = $false
+    try {
+        $null = Get-Item -LiteralPath $script:Config.WhitelistFile -ErrorAction Stop
+        try {
+            $userPatterns = @(Get-Content -LiteralPath $script:Config.WhitelistFile -ErrorAction Stop)
+            foreach ($pattern in $userPatterns) {
+                $pattern = $pattern.Trim()
+                if ($pattern -and -not $pattern.StartsWith('#')) { $patterns.Add($pattern) }
+            }
+        }
+        catch {
+            Write-Debug "Whitelist unreadable; retaining target"
+            $retainAll = $true
+        }
+    }
+    catch [System.Management.Automation.ItemNotFoundException] {
+        # Absent is empty.
+    }
+    catch {
+        Write-Debug "Whitelist metadata unavailable; retaining target"
+        $retainAll = $true
+    }
+
+    # What Test-WhitelistPattern derives from a pattern on every call: its
+    # root without a trailing backslash, that root as a directory prefix, and
+    # whether -like can match anything beyond that (a wildcard or a backtick,
+    # which PowerShell treats as an escape). Without one, the root test already
+    # covers an exact match.
+    $roots = New-Object System.Collections.Generic.List[string]
+    $prefixes = New-Object System.Collections.Generic.List[string]
+    $wild = New-Object System.Collections.Generic.List[bool]
+    foreach ($pattern in $patterns) {
+        $root = $pattern.TrimEnd('\')
+        $roots.Add($root)
+        $prefixes.Add($root + '\')
+        $wild.Add($pattern.IndexOfAny([char[]]@('*', '?', '[', '`')) -ge 0)
+    }
+    return @{
+        RetainAll = $retainAll
+        Patterns  = $patterns.ToArray()
+        Roots     = $roots.ToArray()
+        Prefixes  = $prefixes.ToArray()
+        Wild      = $wild.ToArray()
+    }
+}
+
 function Test-Whitelisted {
     <#
     .SYNOPSIS
         Check if path matches a whitelist pattern
     #>
-    param([string]$Path)
-    
-    # Check default patterns
-    foreach ($pattern in $script:DefaultWhitelistPatterns) {
-        $expandedPattern = [Environment]::ExpandEnvironmentVariables($pattern)
-        if (Test-WhitelistPattern -Path $Path -Pattern $expandedPattern) {
-            return $true
-        }
-    }
-    
-    # Absence is empty; unreadable protection is unknown and must retain every target.
-    try {
-        $null = Get-Item -LiteralPath $script:Config.WhitelistFile -ErrorAction Stop
-    }
-    catch [System.Management.Automation.ItemNotFoundException] {
-        return $false
-    }
-    catch {
-        Write-Debug "Whitelist metadata unavailable; retaining target"
-        return $true
-    }
-    try {
-        $userPatterns = @(Get-Content -LiteralPath $script:Config.WhitelistFile -ErrorAction Stop)
-    }
-    catch {
-        Write-Debug "Whitelist unreadable; retaining target"
-        return $true
-    }
-    foreach ($pattern in $userPatterns) {
-        $pattern = $pattern.Trim()
-        if ($pattern -and -not $pattern.StartsWith('#')) {
-            if (Test-WhitelistPattern -Path $Path -Pattern $pattern) {
-                return $true
-            }
-        }
-    }
+    param([string]$Path, $State = $null)
 
+    if ($null -eq $State) { $State = Get-WhitelistState }
+    if ($State.RetainAll) { return $true }
+    # Same rule as Test-WhitelistPattern, without a call per pattern.
+    $trimmed = $Path.TrimEnd('\')
+    $roots = $State.Roots
+    for ($i = 0; $i -lt $roots.Length; $i++) {
+        if ([string]::Equals($trimmed, $roots[$i], [StringComparison]::OrdinalIgnoreCase) -or
+            $Path.StartsWith($State.Prefixes[$i], [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($State.Wild[$i] -and $Path -like $State.Patterns[$i]) { return $true }
+    }
     return $false
 }
 

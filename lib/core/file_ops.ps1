@@ -113,7 +113,9 @@ function Test-SafePath {
     #>
     param(
         [Parameter(Mandatory)]
-        [string]$Path
+        [string]$Path,
+
+        $WhitelistState = $null
     )
     
     # Must have a path
@@ -136,7 +138,7 @@ function Test-SafePath {
     }
     
     # Check whitelist
-    if (Test-Whitelisted -Path $fullPath) {
+    if (Test-Whitelisted -Path $fullPath -State $WhitelistState) {
         Write-Debug "Whitelisted path rejected: $fullPath"
         return $false
     }
@@ -153,6 +155,30 @@ function Test-IsReparsePoint {
 
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     return ($null -ne $item) -and (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+}
+
+# A child's snapshot from its parent's, reading only the child. The walk has
+# just verified the parent chain, so reopening every ancestor for every entry
+# only repeats that check; the removal sink still rebuilds the whole chain and
+# compares it, so a parent swapped after the walk is refused there. $null means
+# "use Get-MolePathSnapshot instead".
+function Get-MoleChildSnapshot {
+    param($ParentSnapshot, [string]$Path)
+
+    try {
+        $fullPath = [IO.Path]::GetFullPath($Path)
+        if (-not $fullPath.StartsWith($ParentSnapshot.Path.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            return $null
+        }
+        $info = [Mole.SafePathIdentity]::Read($fullPath)
+        $entries = $ParentSnapshot.Entries.Clone()
+        $entries[$fullPath] = $info.Identity
+        return @{ Path = $fullPath; Entries = $entries; AllowLeafLink = $true }
+    }
+    catch {
+        Write-Debug "Could not bind child path: $Path - $_"
+        return $null
+    }
 }
 
 # Everything under $Path, depth first, without entering junctions or
@@ -178,7 +204,8 @@ function Get-TreeItemsNoFollow {
         if (-not (Test-MolePathSnapshot $snapshots[$directory])) { throw "Directory changed: $directory" }
         foreach ($item in @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction $errorAction)) {
             if ($walkTimer.Elapsed.TotalSeconds -ge 15) { throw 'Cleanup walk timed out' }
-            $snapshot = Get-MolePathSnapshot -Path $item.FullName -AllowLeafLink
+            $snapshot = Get-MoleChildSnapshot -ParentSnapshot $snapshots[$directory] -Path $item.FullName
+            if (-not $snapshot) { $snapshot = Get-MolePathSnapshot -Path $item.FullName -AllowLeafLink }
             if (-not $snapshot) { throw "Unverified child: $($item.FullName)" }
             $item | Add-Member -NotePropertyName MolePathSnapshot -NotePropertyValue $snapshot -Force
             $item
@@ -285,8 +312,10 @@ function Get-SafeDirectoryTreeItems {
         }
     }
 
+    # One whitelist read for the whole tree, not one per child.
+    $whitelistState = Get-WhitelistState
     foreach ($item in $items) {
-        if (-not (Test-SafePath -Path $item.FullName)) {
+        if (-not (Test-SafePath -Path $item.FullName -WhitelistState $whitelistState)) {
             Write-Debug "Protected/whitelisted child rejected before recursive removal: $($item.FullName)"
             return @{
                 Success = $false

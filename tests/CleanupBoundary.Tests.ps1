@@ -93,6 +93,28 @@ Describe 'Cleanup physical boundaries' {
         Remove-SafeItem -Path $cache -Recurse | Should -BeTrue
         Test-Path -LiteralPath $cache | Should -BeFalse
     }
+    It 'Reads the whitelist once for a whole tree, not once per child' {
+        $tree = Join-Path $script:Root 'tree'
+        New-Item -ItemType Directory -Path $tree | Out-Null
+        1..12 | ForEach-Object { Set-Content -LiteralPath (Join-Path $tree "f$_.txt") -Value 'x' }
+        Set-Content -LiteralPath $script:Config.WhitelistFile -Value '# no exclusions'
+        $script:WhitelistReads = 0
+        Mock Get-Content { $script:WhitelistReads++; @('# no exclusions') } -ParameterFilter {
+            $LiteralPath -eq $script:Config.WhitelistFile
+        }
+        (Get-SafeDirectoryTreeItems -Path $tree).Success | Should -BeTrue
+        $script:WhitelistReads | Should -Be 1
+    }
+    It 'Still retains a whole tree when the whitelist cannot be read' {
+        $tree = Join-Path $script:Root 'tree'
+        New-Item -ItemType Directory -Path $tree | Out-Null
+        Set-Content -LiteralPath (Join-Path $tree 'a.txt') -Value 'x'
+        Set-Content -LiteralPath $script:Config.WhitelistFile -Value '# present but unreadable'
+        Mock Get-Content { Write-Error 'Access denied' } -ParameterFilter {
+            $LiteralPath -eq $script:Config.WhitelistFile
+        }
+        (Get-SafeDirectoryTreeItems -Path $tree).Success | Should -BeFalse
+    }
     It 'Protects children of a literal directory whitelist without covering a prefix sibling' {
         $cache = Join-Path $script:Root 'cache'
         Set-Content -LiteralPath $script:Config.WhitelistFile -Value $cache
@@ -101,6 +123,90 @@ Describe 'Cleanup physical boundaries' {
     }
 }
 
+
+Describe 'Tree walk snapshots' {
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path "$script:Root\a\b\c", "$script:Root\d" -Force | Out-Null
+        'x' | Set-Content "$script:Root\a\f.txt"
+        'x' | Set-Content "$script:Root\a\b\c\deep.txt"
+        New-Item -ItemType Junction -Path "$script:Root\link" -Target "$script:Root\d" | Out-Null
+    }
+    It 'Binds every item to the same chain a fresh snapshot of its path would' {
+        $items = @(Get-TreeItemsNoFollow -Path $script:Root)
+        $items.Count | Should -BeGreaterThan 5
+        foreach ($item in $items) {
+            $fresh = Get-MolePathSnapshot -Path $item.FullName -AllowLeafLink
+            $bound = $item.MolePathSnapshot
+            $bound.Path | Should -Be $fresh.Path
+            $bound.AllowLeafLink | Should -Be $fresh.AllowLeafLink
+            @($bound.Entries.Keys | Sort-Object) | Should -Be @($fresh.Entries.Keys | Sort-Object) -Because $item.FullName
+            foreach ($key in $fresh.Entries.Keys) { $bound.Entries[$key] | Should -Be $fresh.Entries[$key] -Because $key }
+        }
+    }
+    It 'Binds the root once and each child from its parent instead of reopening every ancestor' {
+        $script:RealSnapshot = ${function:Get-MolePathSnapshot}
+        $script:SnapshotCalls = 0
+        Mock Get-MolePathSnapshot {
+            $script:SnapshotCalls++
+            & $script:RealSnapshot -Path $Path -AllowLeafLink:$AllowLeafLink
+        }
+        $items = @(Get-TreeItemsNoFollow -Path $script:Root)
+        $items.Count | Should -BeGreaterThan 5
+        # The root once, plus the recheck of each directory entered; no call per child.
+        $entered = 1 + @($items | Where-Object { $_.PSIsContainer -and ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 }).Count
+        $script:SnapshotCalls | Should -Be (1 + $entered)
+    }
+    It 'Lists a junction as a link and does not walk into it' {
+        $items = @(Get-TreeItemsNoFollow -Path $script:Root)
+        @($items | Where-Object { $_.FullName -like "$script:Root\link*" }).Count | Should -Be 1
+    }
+    It 'Fails the recheck when a directory is replaced after the walk' {
+        $items = @(Get-TreeItemsNoFollow -Path $script:Root)
+        $target = $items | Where-Object { $_.FullName -eq "$script:Root\a\b\c\deep.txt" }
+        Test-MolePathSnapshot $target.MolePathSnapshot | Should -BeTrue
+        Rename-Item "$script:Root\a\b" 'b-old'
+        New-Item -ItemType Directory -Path "$script:Root\a\b\c" -Force | Out-Null
+        'x' | Set-Content "$script:Root\a\b\c\deep.txt"
+        Test-MolePathSnapshot $target.MolePathSnapshot | Should -BeFalse
+    }
+}
+
+Describe 'Whitelist state matches the per-pattern rule' {
+    BeforeEach {
+        $script:SavedWhitelist = $script:Config.WhitelistFile
+        $script:Config.WhitelistFile = Join-Path $TestDrive 'state-whitelist.txt'
+    }
+    AfterEach { $script:Config.WhitelistFile = $script:SavedWhitelist }
+    It 'Agrees with Test-WhitelistPattern for every pattern shape' {
+        $user = @(
+            'C:\Data\Cache', 'C:\Data\Tail\', 'C:\Data\*\tmp', 'C:\Data\[a]b', 'C:\Data\a?c',
+            'C:\Data\back`tick', 'c:\data\MIXED case', '# a comment', '', '   C:\Data\Padded   '
+        )
+        Set-Content -LiteralPath $script:Config.WhitelistFile -Value $user
+        $paths = @(
+            'C:\Data\Cache', 'C:\Data\Cache\', 'C:\Data\Cache\child.bin', 'C:\Data\Cache-other\child.bin',
+            'C:\Data\Tail', 'C:\Data\Tail\x', 'C:\Data\Tailor', 'C:\Data\one\tmp', 'C:\Data\one\two\tmp',
+            'C:\Data\ab', 'C:\Data\[a]b', 'C:\Data\abc', 'C:\Data\a-c', 'C:\Data\back`tick', 'C:\Data\backtick',
+            'C:\DATA\mixed CASE\x', 'C:\Data\Padded\x', 'C:\Data\Unrelated', 'D:\Data\Cache'
+        )
+        $state = Get-WhitelistState
+        $reference = @($script:DefaultWhitelistPatterns | ForEach-Object { [Environment]::ExpandEnvironmentVariables($_) }) +
+            @('C:\Data\Cache', 'C:\Data\Tail\', 'C:\Data\*\tmp', 'C:\Data\[a]b', 'C:\Data\a?c', 'C:\Data\back`tick',
+              'c:\data\MIXED case', 'C:\Data\Padded')
+        foreach ($path in $paths) {
+            $expected = $false
+            foreach ($pattern in $reference) {
+                if (Test-WhitelistPattern -Path $path -Pattern $pattern) { $expected = $true; break }
+            }
+            (Test-Whitelisted -Path $path -State $state) | Should -Be $expected -Because $path
+            (Test-Whitelisted -Path $path) | Should -Be $expected -Because "$path without a prepared state"
+        }
+        # The comparison must have both outcomes, or it proves nothing.
+        @($paths | Where-Object { Test-Whitelisted -Path $_ -State $state }).Count | Should -BeGreaterThan 5
+        @($paths | Where-Object { -not (Test-Whitelisted -Path $_ -State $state) }).Count | Should -BeGreaterThan 3
+    }
+}
 
 Describe 'Literal bracket whitelist paths' {
     It 'Protects the exact bracket path and its children without matching siblings' {
