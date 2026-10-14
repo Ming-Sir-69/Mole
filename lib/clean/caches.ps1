@@ -241,21 +241,6 @@ function Clear-AppCaches {
         }
     }
     
-    # Adobe Creative Cloud
-    $adobeCachePaths = @(
-        "$env:LOCALAPPDATA\Adobe\*\Cache"
-        "$env:APPDATA\Adobe\Common\Media Cache Files"
-        "$env:APPDATA\Adobe\Common\Peak Files"
-    )
-    foreach ($pattern in $adobeCachePaths) {
-        $paths = Resolve-Path $pattern -ErrorAction SilentlyContinue
-        foreach ($path in $paths) {
-            if (Test-Path $path) {
-                Clear-DirectoryContents -Path $path.Path -Description "Adobe cache"
-            }
-        }
-    }
-    
     # Steam (download cache, not games)
     $steamCachePath = "${env:ProgramFiles(x86)}\Steam\appcache"
     if (Test-Path $steamCachePath) {

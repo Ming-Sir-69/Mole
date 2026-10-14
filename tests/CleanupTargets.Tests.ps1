@@ -51,6 +51,13 @@ Describe 'Conservative cleanup targets' {
         Should -Invoke Clear-DirectoryContents -Times 0 -Exactly -ParameterFilter { $Path -like '*\Spotify\*' }
         Should -Invoke Clear-DirectoryContents -Times 1 -Exactly -ParameterFilter { $Path -eq "$env:APPDATA\Microsoft\Teams\Cache" }
     }
+    It 'Leaves Adobe caches to the Applications section so a run counts them once' {
+        foreach ($dir in @("$env:APPDATA\Adobe\Common\Media Cache Files", "$env:LOCALAPPDATA\Adobe\Premiere\Cache")) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        Clear-AppCaches
+        Should -Invoke Clear-DirectoryContents -Times 0 -Exactly -ParameterFilter { $Description -eq 'Adobe cache' }
+    }
     It 'Keeps Explorer thumbnails and icons during ordinary user cleanup' {
         Invoke-UserCleanup
         Should -Invoke Clear-UserTempFiles -Times 1 -Exactly
