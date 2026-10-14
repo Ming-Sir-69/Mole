@@ -206,7 +206,7 @@ try {
     else {
         Write-Step "Cloning Mole source..."
 
-        $cloneResult = Invoke-GitCommand -Arguments @("clone", "--quiet", "--branch", "windows", "https://github.com/tw93/Mole.git", $InstallDir)
+        $cloneResult = Invoke-GitCommand -Arguments @("clone", "--quiet", "--single-branch", "--branch", "windows", "https://github.com/tw93/Mole.git", $InstallDir)
         if ($cloneResult.ExitCode -ne 0) {
             Write-ErrorMsg "Failed to clone source installer"
             if ($cloneResult.Text) {
