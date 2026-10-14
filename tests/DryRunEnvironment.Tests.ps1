@@ -18,6 +18,7 @@ BeforeAll {
     function Get-StartupPrograms {}
     function Test-DiskHealth {}
     function Test-WindowsUpdate {}
+    function Test-SystemImage {}
     function Test-IsAdmin { $false }
     function Show-OptimizeSummary {}
 }

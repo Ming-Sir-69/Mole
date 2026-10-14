@@ -370,7 +370,7 @@ function Test-SystemFiles {
         $sfcResult = Start-Process -FilePath "sfc.exe" -ArgumentList "/scannow" `
             -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\sfc_output.txt" -ErrorAction Stop
 
-        $output = Get-Content "$env:TEMP\sfc_output.txt" -ErrorAction SilentlyContinue
+        $output = Read-SfcOutput "$env:TEMP\sfc_output.txt"
         Remove-Item "$env:TEMP\sfc_output.txt" -Force -ErrorAction SilentlyContinue
 
         if ($output -match "did not find any integrity violations") {
@@ -386,11 +386,74 @@ function Test-SystemFiles {
             $script:IssuesFound++
         }
         else {
-            Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m Scan completed"
+            # A localized Windows prints its own words; an unread result is never shown as clean.
+            Write-Host "  $esc[90m$($script:Icons.Empty)$esc[0m Scan finished; details are in $env:WINDIR\Logs\CBS\CBS.log"
         }
     }
     catch {
         Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m System File Checker failed: $_"
+    }
+}
+
+function Read-SfcOutput {
+    <#
+    .SYNOPSIS
+        Read redirected sfc.exe output, which is UTF-16 without a byte order mark.
+        Read as ANSI every other byte is NUL and no English phrase ever matched.
+    #>
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) { return "" }
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    return [System.Text.Encoding]::Unicode.GetString($bytes)
+}
+
+function Test-SystemImage {
+    <#
+    .SYNOPSIS
+        Read Windows' own verdict on the system image (DISM CheckHealth, under a second).
+        A repair downloads from Windows Update and can take half an hour, so it is suggested, never run.
+    #>
+
+    $esc = [char]27
+
+    Write-Host ""
+    Write-Host "$esc[34m$($script:Icons.Arrow) System Image$esc[0m"
+
+    if (-not (Test-IsAdmin)) {
+        Write-Host "  $esc[33m$($script:Icons.Warning)$esc[0m Requires administrator privileges"
+        return
+    }
+
+    if ($script:DryRun) {
+        Write-Host "  $esc[33m$($script:Icons.DryRun)$esc[0m Would check the system image"
+        return
+    }
+
+    try {
+        $state = [string](Repair-WindowsImage -Online -CheckHealth -ErrorAction Stop).ImageHealthState
+    }
+    catch {
+        Write-Host "  $esc[33m$($script:Icons.Warning)$esc[0m Could not check the system image"
+        return
+    }
+
+    switch ($state) {
+        "Healthy" {
+            Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m System image is healthy"
+        }
+        "Repairable" {
+            Write-Host "  $esc[33m$($script:Icons.Warning)$esc[0m System image can be repaired"
+            Write-Host "  $esc[90mRun 'DISM /Online /Cleanup-Image /RestoreHealth' as administrator; it downloads from Windows Update and can take up to 30 minutes$esc[0m"
+            $script:IssuesFound++
+        }
+        "NonRepairable" {
+            Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m System image cannot be repaired by Windows"
+            $script:IssuesFound++
+        }
+        default {
+            Write-Host "  $esc[33m$($script:Icons.Warning)$esc[0m Could not check the system image"
+        }
     }
 }
 
@@ -539,6 +602,7 @@ function Main {
     Get-StartupPrograms
     Test-DiskHealth
     Test-WindowsUpdate
+    Test-SystemImage
 
     # System file check is slow, ask first
     if (-not $script:DryRun -and (Test-IsAdmin)) {

@@ -29,6 +29,7 @@ BeforeAll {
     function script:Get-Volume { param($DriveLetter) }
     function script:Optimize-Volume { param($DriveLetter) }
     function script:Clear-DnsClientCache { }
+    function script:Repair-WindowsImage { param([switch]$Online, [switch]$CheckHealth, [switch]$RestoreHealth) }
 }
 
 Describe "mo optimize steps" {
@@ -51,6 +52,7 @@ Describe "mo optimize steps" {
         Mock Get-Volume { [pscustomobject]@{ DriveLetter = "C" } }
         Mock Optimize-Volume { }
         Mock Clear-DnsClientCache { }
+        Mock Repair-WindowsImage { [pscustomobject]@{ ImageHealthState = "Healthy" } }
         Mock netsh { $global:LASTEXITCODE = 0 }
         Mock Start-Sleep { }
         Mock Get-Service { throw "Get-Service must not run" }
@@ -142,5 +144,73 @@ Describe "Native optimization outcomes" {
         Mock netsh { $global:LASTEXITCODE = 0 }
         Optimize-Network 6>$null
         $script:OptimizationsApplied | Should -Be 1
+    }
+}
+
+Describe "System image and file checks" {
+    BeforeEach {
+        $script:IssuesFound = 0
+        $script:IssuesFixed = 0
+        $script:DryRun = $false
+        Mock Test-IsAdmin { $true }
+    }
+
+    It "Reads the image verdict as '<State>' and only suggests the repair" -ForEach @(
+        @{ State = "Healthy"; Line = "System image is healthy"; Issues = 0 }
+        @{ State = "Repairable"; Line = "System image can be repaired"; Issues = 1 }
+        @{ State = "NonRepairable"; Line = "cannot be repaired by Windows"; Issues = 1 }
+    ) {
+        Mock Repair-WindowsImage { [pscustomobject]@{ ImageHealthState = $State } }
+
+        $output = Test-SystemImage 6>&1 | Out-String
+
+        $output | Should -Match $Line
+        $script:IssuesFound | Should -Be $Issues
+        Should -Invoke Repair-WindowsImage -ParameterFilter { $CheckHealth -and -not $RestoreHealth } -Times 1 -Exactly
+        Should -Invoke Repair-WindowsImage -ParameterFilter { $RestoreHealth } -Times 0 -Exactly
+        if ($State -eq "Repairable") { $output | Should -Match "(?s)RestoreHealth.*30 minutes" }
+    }
+
+    It "Says it could not check when DISM fails, without counting an issue" {
+        Mock Repair-WindowsImage { throw "DISM unavailable" }
+        $output = Test-SystemImage 6>&1 | Out-String
+        $output | Should -Match "Could not check the system image"
+        $script:IssuesFound | Should -Be 0
+    }
+
+    It "Does not call DISM without administrator rights or in a dry run" {
+        Mock Repair-WindowsImage { [pscustomobject]@{ ImageHealthState = "Healthy" } }
+        Mock Test-IsAdmin { $false }
+        Test-SystemImage 6>$null
+        Mock Test-IsAdmin { $true }
+        $script:DryRun = $true
+        Test-SystemImage 6>$null
+        Should -Invoke Repair-WindowsImage -Times 0 -Exactly
+    }
+
+    It "Decodes sfc output, which is UTF-16 without a byte order mark" {
+        $path = Join-Path $TestDrive "sfc.txt"
+        $text = "Windows Resource Protection did not find any integrity violations."
+        [System.IO.File]::WriteAllBytes($path, [System.Text.Encoding]::Unicode.GetBytes($text))
+        Read-SfcOutput $path | Should -Be $text
+        Read-SfcOutput (Join-Path $TestDrive "missing.txt") | Should -Be ""
+    }
+
+    It "Reports '<Expect>' for sfc output '<Text>'" -ForEach @(
+        @{ Text = "Windows Resource Protection did not find any integrity violations."; Expect = "No integrity violations found" }
+        @{ Text = "Windows Resource Protection found corrupt files and successfully repaired them."; Expect = "Corrupt files were repaired" }
+        @{ Text = "Der Windows-Ressourcenschutz hat keine Integritaetsverletzungen gefunden."; Expect = "Scan finished; details are in" }
+    ) {
+        $savedTemp = $env:TEMP
+        try {
+            $env:TEMP = $TestDrive
+            [System.IO.File]::WriteAllBytes((Join-Path $TestDrive "sfc_output.txt"), [System.Text.Encoding]::Unicode.GetBytes($Text))
+            Mock Start-Process { [pscustomobject]@{ ExitCode = 0 } }
+            Mock Remove-Item { }
+            $output = Test-SystemFiles 6>&1 | Out-String
+            $output | Should -Match ([regex]::Escape($Expect))
+            $output | Should -Not -Match "Scan completed"
+        }
+        finally { $env:TEMP = $savedTemp }
     }
 }
