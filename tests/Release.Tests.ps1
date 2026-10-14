@@ -7,7 +7,7 @@ BeforeAll {
 }
 
 Describe "write-checksums.ps1" {
-    It "Writes one LF-terminated '<sha256>  <name>' line per file without a BOM" {
+    It "Writes one LF-terminated checksum line per file without a BOM" {
         $dir = Join-Path $TestDrive "sums"
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
         Set-Content -Path (Join-Path $dir "a.zip") -Value "zip"
