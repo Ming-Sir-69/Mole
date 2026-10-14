@@ -21,6 +21,7 @@ This is the synchronization entry point for **Mole CLI (Windows)**, branch `wind
 | CLI-SYNC-06 | Uninstall configuration references | Pending | Mole CLI (macOS) `eb21fff1`; identify existing Windows consumers and exact non-secret configuration files before adapting. Never broaden automatic deletion or print file contents. |
 | CLI-SYNC-07 | Process CPU denominator | Intentional difference | Both CLIs use one logical CPU as 100%; Windows `cmd/status/metrics.go:processInfoFromSamples` preserves that contract. Mole for Windows uses a whole-machine denominator. |
 | CLI-SYNC-08 | GUI-only bulk app updates and lifetime totals | Not applicable | This CLI has self-update, not the app's bulk updater or lifetime-statistics store. Do not create either merely to port an app fix. |
+| CLI-SYNC-09 | Generated media and recordings | Pending | Mole CLI (macOS) `b364d17d` stopped treating rendered and exported media as cache. Windows `lib/clean/apps.ps1:Clear-GameMediaFiles` (opt-in `-GameMedia`) still removes recordings older than 90 days from ShadowPlay, Radeon ReLive, Xbox captures, Screen Recordings and OBS, and `Clear-AdobeData` empties `Team Projects Cache`. Not changed here: the opt-in is an explicit user choice and whether these folders count as cache is a product decision. Next check: the maintainer decides per folder; any removal needs a fixture that keeps an authored recording. |
 
 ## Verification and delivery
 

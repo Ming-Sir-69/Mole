@@ -67,6 +67,7 @@ The checks have specific limits:
 - Native shell recycling waits for the shell's result. A long-running shell call is not reported as complete merely because a timer elapsed.
 - A cache tag is an owner's declaration, not proof that arbitrary contents are unimportant or untracked.
 - Leftover ownership is based on registered install locations and current-user Appx inventory. Unregistered portable applications or missing vendor metadata cannot be exhaustively classified.
+- Purge reads Git without the user's Git configuration. A repository Git refuses to open, such as one owned by another non-administrator account, keeps its artifacts even when the user's global `safe.directory` lists it (verified on Windows PowerShell 5.1: plain `git status` exit 0, Purge's isolated call exit 128).
 - Automated tests cover controlled fixtures. They do not establish safety for every filesystem provider, locked-file state, running application or administrator configuration.
 
 For private vulnerability reporting, see [SECURITY.md](SECURITY.md). Keep this review aligned with changed safety boundaries and retain dated runtime evidence in the development record.
