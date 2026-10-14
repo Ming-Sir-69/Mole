@@ -242,11 +242,12 @@ function Test-MoleLeftoverOwnership {
     if (-not (Test-MoleInstallFolder $Path)) { return $false }
     $folder = Get-NormalizedFolderPath $Path
     $key = [string](Get-MoleProperty $App 'RegistryKey')
+    $mergedKeys = @(Get-MoleProperty $App 'MergedKeys')
     if (-not $Preview -and -not (Test-UninstallEntryGone $key)) { return $false }
     $inventory = Get-MoleInstallOwners
     if (-not $inventory.Complete) { return $false }
     foreach ($owner in $inventory.Owners) {
-        if ($Preview -and $key -and $owner.Key -eq $key) { continue }
+        if ($Preview -and $owner.Key -and ($owner.Key -eq $key -or $owner.Key -in $mergedKeys)) { continue }
         if ($folder -eq $owner.Path -or
             $folder.StartsWith($owner.Path + '\', [StringComparison]::OrdinalIgnoreCase) -or
             $owner.Path.StartsWith($folder + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -380,8 +381,10 @@ function Merge-InstalledApps {
 
     $kept = New-Object System.Collections.ArrayList
     $scores = New-Object System.Collections.ArrayList
+    $mergedKeys = New-Object System.Collections.ArrayList
     foreach ($app in $Apps) {
         if ($null -eq $app) { continue }
+        $appKey = [string](Get-MoleProperty $app 'RegistryKey')
         $folder = [string](Get-MoleProperty $app 'InstallLocation')
         $uninstall = [string](Get-MoleProperty $app 'UninstallString')
         $score = 0
@@ -406,11 +409,20 @@ function Merge-InstalledApps {
         if ($match -lt 0) {
             [void]$kept.Add($app)
             [void]$scores.Add($score)
+            [void]$mergedKeys.Add((New-Object System.Collections.ArrayList))
+            if ($appKey) { [void]$mergedKeys[$kept.Count - 1].Add($appKey) }
         }
-        elseif ($score -gt $scores[$match]) {
-            $kept[$match] = $app
-            $scores[$match] = $score
+        else {
+            if ($appKey) { [void]$mergedKeys[$match].Add($appKey) }
+            if ($score -gt $scores[$match]) {
+                $kept[$match] = $app
+                $scores[$match] = $score
+            }
         }
+    }
+    # A preview treats every key that registered this product as going away with it.
+    for ($i = 0; $i -lt $kept.Count; $i++) {
+        Add-Member -InputObject $kept[$i] -NotePropertyName MergedKeys -NotePropertyValue @($mergedKeys[$i]) -Force
     }
     return @($kept)
 }

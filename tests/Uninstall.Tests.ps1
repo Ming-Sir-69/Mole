@@ -512,6 +512,7 @@ Describe "Scanning installed apps" {
         $apps = @(Get-InstalledApplications -ForceRescan)
 
         @($apps | Where-Object { $_.Name -eq "Twin" }).Count | Should -Be 1
+        @($apps | Where-Object { $_.Name -eq "Twin" } | ForEach-Object { $_.MergedKeys }) | Sort-Object | Should -Be @("HKLM-test\a", "HKLM-test\b")
     }
 
     It "Hides system components, updates and child entries" {
@@ -642,6 +643,19 @@ Describe 'Leftover install folder ownership' {
         Set-DryRunMode -Enabled $true
         Uninstall-SelectedApps @($script:SelectedApp)
         Should -Invoke Remove-SafeItem -Times 2 -Exactly
+    }
+    It 'Previews a leftover when the only blocking key is a duplicate merged into the selected app' {
+        $script:SelectedApp | Add-Member -NotePropertyName MergedKeys -NotePropertyValue @('selected-key', 'duplicate-key') -Force
+        $script:Owners = @(@{ Path = $script:SharedFolder; Key = 'selected-key' }, @{ Path = $script:SharedFolder; Key = 'duplicate-key' })
+        Set-DryRunMode -Enabled $true
+        Uninstall-SelectedApps @($script:SelectedApp)
+        Should -Invoke Remove-SafeItem -Times 1 -Exactly
+    }
+    It 'Keeps the leftover in a real run while a merged duplicate key survives' {
+        $script:SelectedApp | Add-Member -NotePropertyName MergedKeys -NotePropertyValue @('selected-key', 'duplicate-key') -Force
+        $script:Owners = @(@{ Path = $script:SharedFolder; Key = 'duplicate-key' })
+        Uninstall-SelectedApps @($script:SelectedApp)
+        Should -Invoke Remove-SafeItem -Times 0 -Exactly
     }
     It 'Rechecks ownership in the final removal guard' {
         $script:GuardResult = $true
