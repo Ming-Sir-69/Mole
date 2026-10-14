@@ -1,6 +1,6 @@
 # Product synchronization
 
-This is the synchronization entry point for **Mole CLI (Windows)**, branch `windows` of `tw93/Mole`. Workflow and the four canonical product names are in [AGENTS.md](AGENTS.md#product-synchronization). Source review baseline: `7d1051af`, 2026-10-14, Asia/Singapore. This is a source/record review, not a new full runtime audit or a release.
+This is the synchronization entry point for **Mole CLI (Windows)**, branch `windows` of `tw93/Mole`. Workflow and the four canonical product names are in [AGENTS.md](AGENTS.md#product-synchronization). Source review baseline: `2e1566af`, 2026-10-14, Asia/Singapore. This is a source/record review, not a new full runtime audit or a release.
 
 ## Ownership
 
