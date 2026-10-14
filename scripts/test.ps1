@@ -86,7 +86,8 @@ if (-not $NoGo) {
     Write-Host ""
     
     # Only -NoGo may skip this part of the gate.
-    $goCommand = Get-Command go -CommandType Application -ErrorAction SilentlyContinue
+    # Several Go installs can be on PATH at once; the first is the one a shell runs.
+    $goCommand = Get-Command go -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     $goReady = $false
     if ($goCommand) {
         $goVersion = & $goCommand.Source version 2>&1

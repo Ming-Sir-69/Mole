@@ -3,7 +3,7 @@ BeforeAll {
     $script:PowerShellExe = (Get-Process -Id $PID).Path
 
     function Invoke-FixtureRunner {
-        param([string]$TestBody, [switch]$OnlyGo, [string]$GoBody)
+        param([string]$TestBody, [switch]$OnlyGo, [string]$GoBody, [switch]$TwoGo)
         $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
         $scripts = New-Item -ItemType Directory -Path (Join-Path $root 'scripts')
         $tests = New-Item -ItemType Directory -Path (Join-Path $root 'tests')
@@ -20,6 +20,12 @@ BeforeAll {
                 $env:PATH = $root
                 if ($GoBody) {
                     Set-Content -LiteralPath (Join-Path $root 'go.cmd') -Value $GoBody -Encoding ASCII
+                }
+                if ($TwoGo) {
+                    # A hosted runner can carry its preinstalled Go and the one setup-go added.
+                    $second = New-Item -ItemType Directory -Path (Join-Path $root 'second')
+                    Copy-Item -LiteralPath (Join-Path $root 'go.cmd') -Destination (Join-Path $second.FullName 'go.cmd')
+                    $env:PATH = "$root;$($second.FullName)"
                 }
                 $output = & $script:PowerShellExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $runner -NoPester 2>&1
             }
@@ -76,6 +82,11 @@ Describe 'Test runner exit status' {
 
     It 'passes when the native Go checks pass' {
         $result = Invoke-FixtureRunner -OnlyGo -GoBody "@echo off`r`nexit /b 0"
+        $result.ExitCode | Should -Be 0
+    }
+
+    It 'passes when two Go installs are on PATH' {
+        $result = Invoke-FixtureRunner -OnlyGo -TwoGo -GoBody "@echo off`r`nexit /b 0"
         $result.ExitCode | Should -Be 0
     }
 }
