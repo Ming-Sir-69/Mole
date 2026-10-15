@@ -169,6 +169,23 @@ function Test-MoleInstallFolder {
         return $false
     }
 
+    # A Steam library holds every game installed to it. Its root (any folder with
+    # a steamapps child, the Steam client's own folder included), steamapps and
+    # everything in it outside one game's steamapps\common\<Game> are never one
+    # app's install folder.
+    $steamIndex = -1
+    for ($i = 0; $i -lt $segments.Count; $i++) {
+        if ($segments[$i] -ieq 'steamapps') { $steamIndex = $i; break }
+    }
+    if ($steamIndex -ge 0 -and
+        -not ($segments.Count -ge $steamIndex + 3 -and $segments[$steamIndex + 1] -ieq 'common')) {
+        return $false
+    }
+    if ([System.IO.Directory]::Exists((Join-Path $folder 'steamapps')) -or
+        [System.IO.File]::Exists((Join-Path $folder 'libraryfolder.vdf'))) {
+        return $false
+    }
+
     $roots = @(
         $env:USERPROFILE, $env:PUBLIC, $env:APPDATA, $env:LOCALAPPDATA, $env:ProgramData,
         $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramW6432,
@@ -1002,6 +1019,29 @@ function Get-UninstallMethodDescription {
     return "no uninstall command registered"
 }
 
+# The display name alone cannot say which install an uninstall row was about,
+# so each row also carries the folder, the registry entry and the command run.
+function Get-UninstallOperationDetail {
+    param($App, [string]$Outcome, $Launch)
+
+    $parts = @($Outcome)
+    $folder = [string](Get-MoleProperty $App 'InstallLocation')
+    if ($folder) { $parts += "location $folder" }
+    $key = [string](Get-MoleProperty $App 'RegistryKey')
+    if ($key) { $parts += "key $($key -replace '^Microsoft\.PowerShell\.Core\\Registry::', '')" }
+    $package = [string](Get-MoleProperty $App 'PackageFullName')
+    if ($package) { $parts += "package $package" }
+    if ($Launch) {
+        $command = @(@($Launch.FilePath) + @($Launch.Arguments) | Where-Object { $_ }) -join ' '
+        $parts += "command $command"
+    }
+    else {
+        $registered = [string](Get-MoleProperty $App 'UninstallString')
+        if ($registered) { $parts += "registered $registered" }
+    }
+    return $parts -join '; '
+}
+
 function Uninstall-SelectedApps {
     <#
     .SYNOPSIS
@@ -1042,12 +1082,13 @@ function Uninstall-SelectedApps {
     foreach ($app in $Apps) {
         Write-Host "$esc[34m$($script:Icons.Arrow)$esc[0m Uninstalling: $($app.Name)" -NoNewline
 
+        $launch = $null
         try {
             if ($app.Source -eq "WindowsStore") {
                 # UWP app
                 if ($app.PackageFullName) {
                     Remove-AppxPackage -Package $app.PackageFullName -ErrorAction Stop
-                    Write-MoleOperation -Action "UNINSTALLED" -Path $app.Name -Detail $app.PackageFullName
+                    Write-MoleOperation -Action "UNINSTALLED" -Path $app.Name -Detail (Get-UninstallOperationDetail -App $app -Outcome "Store package removed")
                     Write-Host " $esc[32m$($script:Icons.Success)$esc[0m"
                     $successCount++
                 }
@@ -1057,6 +1098,7 @@ function Uninstall-SelectedApps {
             # Registry app: run its uninstaller once, then trust only the registry.
             $launch = Get-UninstallLaunch -App $app
             if (-not $launch) {
+                Write-MoleOperation -Action "FAILED" -Path $app.Name -Detail (Get-UninstallOperationDetail -App $app -Outcome "no runnable uninstaller")
                 Write-Host " $esc[31m(no runnable uninstaller found)$esc[0m"
                 $failCount++
                 continue
@@ -1072,13 +1114,13 @@ function Uninstall-SelectedApps {
             # A cancelled, failed or still-running uninstall leaves its entry behind, and
             # then the install folder is still the app's: nothing is removed.
             if (-not (Test-UninstallEntryGone -KeyPath ([string](Get-MoleProperty $app 'RegistryKey')))) {
-                Write-MoleOperation -Action "FAILED" -Path $app.Name -Detail "still installed, exit code $exitCode"
+                Write-MoleOperation -Action "FAILED" -Path $app.Name -Detail (Get-UninstallOperationDetail -App $app -Outcome "still installed, exit code $exitCode" -Launch $launch)
                 Write-Host " $esc[33m(still installed, exit code $exitCode)$esc[0m"
                 $remainingCount++
                 continue
             }
 
-            Write-MoleOperation -Action "UNINSTALLED" -Path $app.Name -Detail "exit code $exitCode"
+            Write-MoleOperation -Action "UNINSTALLED" -Path $app.Name -Detail (Get-UninstallOperationDetail -App $app -Outcome "exit code $exitCode" -Launch $launch)
             Write-Host " $esc[32m$($script:Icons.Success)$esc[0m"
             $successCount++
 
@@ -1093,7 +1135,7 @@ function Uninstall-SelectedApps {
         catch {
             Write-Host " $esc[31m$($script:Icons.Error)$esc[0m"
             Write-Debug "Uninstall failed: $_"
-            Write-MoleOperation -Action "FAILED" -Path $app.Name -Detail $_.Exception.Message
+            Write-MoleOperation -Action "FAILED" -Path $app.Name -Detail (Get-UninstallOperationDetail -App $app -Outcome $_.Exception.Message -Launch $launch)
             $failCount++
         }
     }

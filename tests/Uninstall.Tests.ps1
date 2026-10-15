@@ -209,6 +209,35 @@ Describe "Install folder eligibility" {
     It "Rejects a folder that does not exist" {
         Test-MoleInstallFolder -Path (Join-Path $TestDrive "Missing App") | Should -BeFalse
     }
+
+    It "Never takes a Steam library or its steamapps folders for one app: <Label>" -TestCases @(
+        @{ Label = "the library root"; Relative = "SteamLibrary" }
+        @{ Label = "steamapps"; Relative = "SteamLibrary\steamapps" }
+        @{ Label = "steamapps\common"; Relative = "SteamLibrary\steamapps\common" }
+        @{ Label = "the workshop"; Relative = "SteamLibrary\steamapps\workshop\content" }
+        @{ Label = "the Steam client folder"; Relative = "Steam" }
+    ) {
+        foreach ($folder in @("SteamLibrary\steamapps\common\Some Game", "SteamLibrary\steamapps\workshop\content", "Steam\steamapps\common")) {
+            New-Item -ItemType Directory -Path (Join-Path $TestDrive $folder) -Force | Out-Null
+        }
+        Set-Content -Path (Join-Path $TestDrive "SteamLibrary\libraryfolder.vdf") -Value '"libraryfolder" {}'
+
+        Test-MoleInstallFolder -Path (Join-Path $TestDrive $Relative) | Should -BeFalse
+    }
+
+    It "Accepts one game's folder inside a Steam library" {
+        $game = Join-Path $TestDrive "SteamLibrary\steamapps\common\Some Game"
+        New-Item -ItemType Directory -Path $game -Force | Out-Null
+
+        Test-MoleInstallFolder -Path $game | Should -BeTrue
+    }
+
+    It "Rejects a library root marked only by libraryfolder.vdf" {
+        $root = New-TestFolder -Name "GamesDrive"
+        Set-Content -Path (Join-Path $root "libraryfolder.vdf") -Value '"libraryfolder" {}'
+
+        Test-MoleInstallFolder -Path $root | Should -BeFalse
+    }
 }
 
 Describe "Uninstall entry removal check" {
@@ -366,6 +395,49 @@ Describe "Uninstalling registry apps" {
 
         Should -Invoke Start-Process -Times 1 -Exactly -ParameterFilter {
             $FilePath -eq $nsis -and ($ArgumentList -join " ") -eq "/S"
+        }
+    }
+
+    It "Records the install folder, registry key and command with each outcome" {
+        Mock Write-MoleOperation {}
+        $app = [PSCustomObject]@{
+            Name = "Contoso Tool"; Source = "Registry"; UninstallString = "`"$script:Uninstaller`""
+            InstallLocation = $script:AppFolder; RegistryKey = $script:GoneKey; PackageFullName = $null
+        }
+
+        Uninstall-SelectedApps -Apps @($app)
+
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter {
+            $Action -eq "UNINSTALLED" -and $Path -eq "Contoso Tool" -and
+            $Detail -like "exit code 1; location $($script:AppFolder); key HKEY_CURRENT_USER\*\removed-by-uninstaller; command $($script:Uninstaller)"
+        }
+    }
+
+    It "Records a still-installed app with the same detail" {
+        Mock Write-MoleOperation {}
+        $app = [PSCustomObject]@{
+            Name = "Contoso Tool"; Source = "Registry"; UninstallString = "`"$script:Uninstaller`""
+            InstallLocation = $script:AppFolder; RegistryKey = $script:PresentKey; PackageFullName = $null
+        }
+
+        Uninstall-SelectedApps -Apps @($app)
+
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter {
+            $Action -eq "FAILED" -and $Detail -like "still installed, exit code 1; location *; key *; command $($script:Uninstaller)"
+        }
+    }
+
+    It "Records an app with no runnable uninstaller" {
+        Mock Write-MoleOperation {}
+        $app = [PSCustomObject]@{
+            Name = "Missing App"; Source = "Registry"; UninstallString = "`"$TestDrive\gone\uninstall.exe`""
+            InstallLocation = $script:AppFolder; RegistryKey = $script:GoneKey; PackageFullName = $null
+        }
+
+        Uninstall-SelectedApps -Apps @($app)
+
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter {
+            $Action -eq "FAILED" -and $Detail -like "no runnable uninstaller; location *; key *; registered *gone\uninstall.exe*"
         }
     }
 
