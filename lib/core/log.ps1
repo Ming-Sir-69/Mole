@@ -65,8 +65,10 @@ function Write-MoleOperation {
         $command = if ($env:_MOLE_OPLOG_RUN_COMMAND) { $env:_MOLE_OPLOG_RUN_COMMAND } else { "mole" }
         $label = if ($env:_MOLE_OPLOG_RUN_ID) { "$command run=$($env:_MOLE_OPLOG_RUN_ID)" } else { $command }
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        $line = "[$timestamp] [$label] $Action $(ConvertTo-MoleLogValue $Path)"
-        if ($Detail) { $line += " ($(ConvertTo-MoleLogValue $Detail))" }
+        # Every record ends in one parenthesis-free "(detail)", so a reader can split
+        # it from a path that holds parentheses, such as "Program Files (x86)".
+        $safeDetail = if ($Detail) { (ConvertTo-MoleLogValue $Detail).Replace("(", "[").Replace(")", "]") } else { "-" }
+        $line = "[$timestamp] [$label] $Action $(ConvertTo-MoleLogValue $Path) ($safeDetail)"
         $file = $script:MoleOperationsLogFile
         $encoding = New-Object System.Text.UTF8Encoding $false
         if (-not $script:MoleOperationsLogStarted) {

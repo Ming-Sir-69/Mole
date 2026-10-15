@@ -154,6 +154,7 @@ function Show-MainHelp {
     Write-HelpRow "mo analyze" "Explore disk usage"
     Write-HelpRow "mo status" "Monitor system health"
     Write-HelpRow "mo purge" "Remove old project artifacts"
+    Write-HelpRow "mo history" "Review cleanup activity"
     Write-HelpRow "mo update" "Update to latest version"
     Write-HelpRow "mo remove" "Remove Mole from system"
     Write-HelpRow "mo --help" "Show help"
@@ -166,6 +167,7 @@ function Show-MainHelp {
     Write-HelpRow "mo uninstall --dry-run" "Preview app uninstall"
     Write-HelpRow "mo purge --dry-run" "Preview project purge"
     Write-HelpRow "mo purge --paths" "Configure scan directories"
+    Write-HelpRow "mo history --json" "Export cleanup history"
     Write-HelpRow "mo analyze D:\" "Analyze another drive"
     Write-Host ""
     Write-Host "${blue}OPTIONS${nc}"
@@ -291,7 +293,7 @@ function Invoke-MoleCommand {
     }
 
     # A previous native command must not make a help-only invocation fail.
-    if ($CommandName -in @("analyze", "status")) { $global:LASTEXITCODE = 0 }
+    if ($CommandName -in @("analyze", "status", "history")) { $global:LASTEXITCODE = 0 }
 
     # Execute the command script with arguments using splatting
     # This properly handles switch parameters passed as strings
@@ -357,7 +359,7 @@ function Invoke-MoleCommand {
     finally {
         if ($debugSession) { Complete-MoleDebugSession }
     }
-    if ($CommandName -in @("analyze", "status")) {
+    if ($CommandName -in @("analyze", "status", "history")) {
         $script:MoleExitCode = $LASTEXITCODE
     }
 }
@@ -422,7 +424,7 @@ function Main {
 
     # If command specified, route to it
     if ($effectiveCommand) {
-        $validCommands = @("clean", "uninstall", "analyze", "status", "optimize", "update", "remove", "purge")
+        $validCommands = @("clean", "uninstall", "analyze", "status", "optimize", "purge", "history", "update", "remove")
 
         if ($effectiveCommand -in $validCommands) {
             Invoke-MoleCommand -CommandName $effectiveCommand -Arguments $effectiveArguments

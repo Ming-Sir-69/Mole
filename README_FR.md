@@ -69,6 +69,8 @@ mo clean --dry-run
 mo uninstall --dry-run
 mo optimize --dry-run
 mo purge --dry-run
+mo history
+mo history --json
 
 mo clean --dry-run --debug   # Aperçu + journaux détaillés
 mo clean --whitelist         # Gérer les chemins protégés
@@ -100,6 +102,7 @@ Mole peut supprimer des fichiers ; il valide donc les chemins et protège les em
 - `clean`, `uninstall` et `purge` suppriment définitivement ; les fichiers supprimés dans `mo analyze` vont dans la Corbeille
 - Exécutez Mole avec votre compte utilisateur habituel ; les étapes au niveau système sont ignorées sauf si PowerShell est lancé en tant qu'administrateur
 - Protégez des chemins avec `mo clean --whitelist`
+- Les opérations de nettoyage sont consignées dans `%USERPROFILE%\.config\mole\operations.log` ; consultez-les avec `mo history` ou désactivez la journalisation avec `MO_NO_OPLOG=1`
 - `C:\Windows`, `C:\Program Files`, les dossiers de Windows Defender et la racine de votre profil ne sont jamais modifiés
 
 Consultez [SECURITY.md](SECURITY.md) pour la marche à suivre en cas de vulnérabilité et les limites de sécurité.

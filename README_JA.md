@@ -69,6 +69,8 @@ mo clean --dry-run
 mo uninstall --dry-run
 mo optimize --dry-run
 mo purge --dry-run
+mo history
+mo history --json
 
 mo clean --dry-run --debug   # 安全プレビュー + 詳細ログ
 mo clean --whitelist         # 保護するパスの管理
@@ -100,6 +102,7 @@ Moleはファイルを削除できるため、パスを検証し、システム�
 - `clean`、`uninstall`、`purge` は完全に削除します。`mo analyze` で削除したファイルはごみ箱へ移動されます
 - Moleは通常のユーザーとして実行してください。システム領域の処理は、PowerShellを管理者として実行しない限りスキップされます
 - `mo clean --whitelist` で保護するパスを設定できます
+- クリーンアップ履歴は `%USERPROFILE%\.config\mole\operations.log` に記録され、`mo history` で確認するか、`MO_NO_OPLOG=1` で無効化できます
 - `C:\Windows`、`C:\Program Files`、Windows Defenderのフォルダ、ユーザープロファイルのルートには一切手を加えません
 
 脆弱性の報告方法と安全上の境界は [SECURITY.md](SECURITY.md) をご覧ください。

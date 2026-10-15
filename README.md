@@ -69,6 +69,8 @@ mo clean --dry-run
 mo uninstall --dry-run
 mo optimize --dry-run
 mo purge --dry-run
+mo history
+mo history --json
 
 mo clean --dry-run --debug   # Preview + detailed logs
 mo clean --whitelist         # Manage protected paths
@@ -100,6 +102,7 @@ Mole can delete files, so it validates paths and protects system and profile loc
 - `clean`, `uninstall`, and `purge` delete permanently; files deleted in `mo analyze` go to the Recycle Bin
 - Run Mole as your normal user; system-level steps are skipped unless PowerShell runs as administrator
 - Protect paths with `mo clean --whitelist`
+- Cleanup activity is recorded in `%USERPROFILE%\.config\mole\operations.log`; review it with `mo history` or disable it with `MO_NO_OPLOG=1`
 - `C:\Windows`, `C:\Program Files`, Windows Defender folders, and your profile root are never touched
 
 Review [SECURITY.md](SECURITY.md) for reporting guidance and safety boundaries.

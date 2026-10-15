@@ -69,6 +69,8 @@ mo clean --dry-run
 mo uninstall --dry-run
 mo optimize --dry-run
 mo purge --dry-run
+mo history
+mo history --json
 
 mo clean --dry-run --debug   # 安全预览 + 详细诊断日志
 mo clean --whitelist         # 管理受保护的路径
@@ -100,6 +102,7 @@ Mole 会删除文件，所以会先校验路径、保护系统和用户配置目
 - `clean`、`uninstall` 与 `purge` 是永久删除，`mo analyze` 中删除的文件会放进回收站
 - 用普通用户身份运行 Mole 即可，系统级步骤只有以管理员身份运行 PowerShell 时才会执行，否则跳过
 - 可通过 `mo clean --whitelist` 保护指定路径
+- 清理操作记录在 `%USERPROFILE%\.config\mole\operations.log` 中，可通过 `mo history` 查看，或设置 `MO_NO_OPLOG=1` 禁用
 - `C:\Windows`、`C:\Program Files`、Windows Defender 目录和用户配置根目录永远不会被触碰
 
 漏洞报告方式与安全边界见 [SECURITY.md](SECURITY.md)。

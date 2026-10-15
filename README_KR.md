@@ -69,6 +69,8 @@ mo clean --dry-run
 mo uninstall --dry-run
 mo optimize --dry-run
 mo purge --dry-run
+mo history
+mo history --json
 
 mo clean --dry-run --debug   # 미리보기 + 상세 로그
 mo clean --whitelist         # 보호할 경로 관리
@@ -100,6 +102,7 @@ Mole은 파일을 삭제할 수 있으므로 경로를 검증하고, 시스템 �
 - `clean`, `uninstall`, `purge`는 영구 삭제하며, `mo analyze`에서 삭제한 파일은 휴지통으로 이동됩니다
 - Mole은 일반 사용자 권한으로 실행하세요. PowerShell을 관리자 권한으로 실행하지 않으면 시스템 수준 단계는 건너뜁니다
 - `mo clean --whitelist`로 보호할 경로를 지정하세요
+- 정리 내역은 `%USERPROFILE%\.config\mole\operations.log`에 기록되며, `mo history`로 확인하거나 `MO_NO_OPLOG=1`로 비활성화할 수 있습니다
 - `C:\Windows`, `C:\Program Files`, Windows Defender 폴더, 사용자 프로필 루트는 절대 건드리지 않습니다
 
 취약점 신고 방법과 안전 경계는 [SECURITY.md](SECURITY.md)를 참고하세요.

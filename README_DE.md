@@ -69,6 +69,8 @@ mo clean --dry-run
 mo uninstall --dry-run
 mo optimize --dry-run
 mo purge --dry-run
+mo history
+mo history --json
 
 mo clean --dry-run --debug   # Vorschau + detaillierte Protokolle
 mo clean --whitelist         # Geschützte Pfade verwalten
@@ -100,6 +102,7 @@ Mole kann Dateien löschen. Deshalb prüft es Pfade und schützt System- und Pro
 - `clean`, `uninstall` und `purge` löschen endgültig; Dateien, die in `mo analyze` gelöscht werden, landen im Papierkorb
 - Führe Mole als normaler Benutzer aus; Systemschritte werden übersprungen, sofern PowerShell nicht als Administrator läuft
 - Schütze Pfade mit `mo clean --whitelist`
+- Bereinigungsaktivitäten werden in `%USERPROFILE%\.config\mole\operations.log` protokolliert; überprüfe sie mit `mo history` oder deaktiviere das Logging mit `MO_NO_OPLOG=1`
 - `C:\Windows`, `C:\Program Files`, die Windows-Defender-Ordner und dein Profilstamm werden nie angetastet
 
 Hinweise zum Melden von Schwachstellen und zu den Sicherheitsgrenzen findest du in [SECURITY.md](SECURITY.md).

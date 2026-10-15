@@ -69,6 +69,8 @@ mo clean --dry-run
 mo uninstall --dry-run
 mo optimize --dry-run
 mo purge --dry-run
+mo history
+mo history --json
 
 mo clean --dry-run --debug   # Предпросмотр + подробные журналы
 mo clean --whitelist         # Управление защищёнными путями
@@ -100,6 +102,7 @@ Mole умеет удалять файлы, поэтому он проверяе�
 - `clean`, `uninstall` и `purge` удаляют безвозвратно; файлы, удалённые в `mo analyze`, попадают в Корзину
 - Запускайте Mole от обычного пользователя; шаги системного уровня пропускаются, если PowerShell запущен не от имени администратора
 - Защищайте пути через `mo clean --whitelist`
+- Действия по очистке записываются в `%USERPROFILE%\.config\mole\operations.log`; просмотреть их можно командой `mo history`, а отключить запись можно переменной `MO_NO_OPLOG=1`
 - `C:\Windows`, `C:\Program Files`, папки Windows Defender и корень вашего профиля никогда не затрагиваются
 
 Загляните в [SECURITY.md](SECURITY.md), чтобы узнать, как сообщать о проблемах и какие границы безопасности действуют.
