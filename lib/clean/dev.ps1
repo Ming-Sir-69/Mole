@@ -21,10 +21,14 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # Invoke an installed owner in a bounded child process. Encoded PowerShell keeps
 # executable paths and arguments as data, including spaces and quote characters.
 function Invoke-MoleOwnerProcess {
-    param([string]$Name, [string[]]$Arguments, [int]$TimeoutSeconds = 5)
+    param([string]$Name, [string[]]$Arguments, [int]$TimeoutSeconds = 5, [hashtable]$Outcome = $null)
 
+    # Outcome.Reason says why a run returned nothing, including a forced stop,
+    # so the caller's operations.log row can say the owner was killed.
+    if ($null -eq $Outcome) { $Outcome = @{} }
+    $Outcome.Reason = ""
     $command = Get-Command $Name -CommandType Application,ExternalScript -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $command) { return $null }
+    if (-not $command) { $Outcome.Reason = "$Name not found"; return $null }
     $quote = { param($value) "'" + $value.Replace("'", "''") + "'" }
     $words = @(& $quote $command.Source) + @($Arguments | ForEach-Object { & $quote $_ })
     $code = '$ErrorActionPreference = ''Stop''; [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding; & ' + ($words -join ' ') + '; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }'
@@ -49,13 +53,14 @@ function Invoke-MoleOwnerProcess {
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $stderr = $process.StandardError.ReadToEndAsync()
         if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            $Outcome.Reason = "timed out after ${TimeoutSeconds}s"
             return $null
         }
-        if (-not $stdout.Wait(1000) -or -not $stderr.Wait(1000)) { return $null }
-        if ($process.ExitCode -ne 0) { return $null }
+        if (-not $stdout.Wait(1000) -or -not $stderr.Wait(1000)) { $Outcome.Reason = "output not captured"; return $null }
+        if ($process.ExitCode -ne 0) { $Outcome.Reason = "exit code $($process.ExitCode)"; return $null }
         return [pscustomobject]@{ Output = $stdout.Result.Trim() }
     }
-    catch { return $null }
+    catch { $Outcome.Reason = $_.Exception.Message; return $null }
     finally {
         # Also terminate on capture exceptions, not only WaitForExit timeouts.
         if ($started -and -not $process.HasExited) {
@@ -72,8 +77,12 @@ function Invoke-MoleOwnerProcess {
                 $null = $stopper.StandardError.ReadToEndAsync()
                 $null = $stopper.WaitForExit(5000)
                 $stopper.Dispose()
+                $Outcome.Reason = (@($Outcome.Reason, "process tree $($process.Id) stopped with taskkill /T /F") | Where-Object { $_ }) -join "; "
             }
-            catch { Write-Debug "$Name process tree cancellation failed: $_" }
+            catch {
+                Write-Debug "$Name process tree cancellation failed: $_"
+                $Outcome.Reason = (@($Outcome.Reason, "taskkill failed: $($_.Exception.Message)") | Where-Object { $_ }) -join "; "
+            }
             if (-not $process.HasExited) { try { $process.Kill() } catch { } }
         }
         $process.Dispose()
@@ -124,7 +133,8 @@ function Invoke-MoleOwnerCacheCleanup {
     $beforeBytes = 0L
     foreach ($file in $beforeFiles) { $beforeBytes += $file.Length }
     $commandDetail = (@($Name) + $Arguments) -join ' '
-    $result = Invoke-MoleOwnerProcess -Name $Name -Arguments $Arguments -TimeoutSeconds 120
+    $ownerOutcome = @{}
+    $result = Invoke-MoleOwnerProcess -Name $Name -Arguments $Arguments -TimeoutSeconds 120 -Outcome $ownerOutcome
     if ($null -ne $result) {
         Write-MoleOperation -Action "OWNER" -Path $path -Detail $commandDetail
         $script:OwnerCleanups++
@@ -146,7 +156,8 @@ function Invoke-MoleOwnerCacheCleanup {
         Set-SectionActivity
     }
     else {
-        Write-MoleOperation -Action "FAILED" -Path $path -Detail "${commandDetail}: incomplete"
+        $why = if ($ownerOutcome.Reason) { "; $($ownerOutcome.Reason)" } else { "" }
+        Write-MoleOperation -Action "FAILED" -Path $path -Detail "${commandDetail}: incomplete$why"
         Write-Debug "$Name cache cleanup did not complete"
     }
 }

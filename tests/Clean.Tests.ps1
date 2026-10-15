@@ -444,6 +444,16 @@ Describe 'Review regressions: owner log and summary' {
         Invoke-MoleOwnerCacheCleanup -Name npm -Query @('path') -Arguments @('cache','clean','--force') -Description 'npm cache'
         Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq 'FAILED' -and $Detail -eq 'npm cache clean --force: incomplete' }
     }
+    It 'Records that a timed-out owner command was killed' {
+        Mock Invoke-MoleOwnerProcess {
+            if ($null -ne $Outcome) { $Outcome.Reason = 'timed out after 120s; process tree 42 stopped with taskkill /T /F' }
+            $null
+        }
+        Invoke-MoleOwnerCacheCleanup -Name npm -Query @('path') -Arguments @('cache','clean','--force') -Description 'npm cache'
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter {
+            $Action -eq 'FAILED' -and $Detail -eq 'npm cache clean --force: incomplete; timed out after 120s; process tree 42 stopped with taskkill /T /F'
+        }
+    }
     It 'Does not record an owner preview' {
         Set-DryRunMode -Enabled $true
         Mock Add-DryRunListEntries { }
@@ -460,5 +470,14 @@ Describe 'Review regressions: owner log and summary' {
         $output = Show-CleanupSummary -Stats @{ TotalSizeKB = 4; FilesCleaned = 2; TotalItems = 1; OwnerCleanups = 0 } -IsDryRun $true | Out-String
         $output | Should -Match 'Potential space:.*Items: 2'
         $output | Should -Not -Match 'Categories:|--whitelist'
+    }
+}
+
+Describe 'Owner process timeout' {
+    It 'Says when it stops an owner process tree that ran past its timeout' {
+        $outcome = @{}
+        $result = Invoke-MoleOwnerProcess -Name 'powershell' -Arguments @('-NoProfile', '-Command', 'Start-Sleep -Seconds 30') -TimeoutSeconds 1 -Outcome $outcome
+        $result | Should -BeNullOrEmpty
+        $outcome.Reason | Should -Match '^timed out after 1s; process tree \d+ stopped with taskkill /T /F$'
     }
 }

@@ -178,6 +178,7 @@ function Optimize-DiskDrive {
         Write-Host "  Running Windows default optimization on drive ${systemDriveLetter}:..."
         Start-Spinner "Optimizing drive..."
         try { $null = Optimize-Volume -DriveLetter $systemDriveLetter -ErrorAction Stop } finally { Stop-Spinner }
+        Write-MoleOperation -Action "OPTIMIZED" -Path "${systemDriveLetter}:" -Detail "Optimize-Volume"
         Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m Drive optimization completed"
         $script:OptimizationsApplied++
     }
@@ -188,6 +189,9 @@ function Optimize-DiskDrive {
             return
         }
 
+        # $systemDriveLetter is unset when resolving it was what failed.
+        $volumeLabel = if ($env:SystemDrive) { $env:SystemDrive } else { "system drive" }
+        Write-MoleOperation -Action "FAILED" -Path $volumeLabel -Detail "Optimize-Volume: $message"
         Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m Disk optimization failed: $message"
     }
 }
@@ -220,10 +224,12 @@ function Optimize-SearchIndex {
 
         try {
             Start-Service -Name WSearch -ErrorAction Stop
+            Write-MoleOperation -Action "OPTIMIZED" -Path "WSearch service" -Detail "Start-Service"
             Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m Started Windows Search service"
             $script:OptimizationsApplied++
         }
         catch {
+            Write-MoleOperation -Action "FAILED" -Path "WSearch service" -Detail "Start-Service: $($_.Exception.Message)"
             Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m Could not start search service"
         }
     }
@@ -251,10 +257,12 @@ function Clear-DnsCache {
 
     try {
         Clear-DnsClientCache -ErrorAction Stop
+        Write-MoleOperation -Action "OPTIMIZED" -Path "DNS client cache" -Detail "Clear-DnsClientCache"
         Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m DNS cache flushed"
         $script:OptimizationsApplied++
     }
     catch {
+        Write-MoleOperation -Action "FAILED" -Path "DNS client cache" -Detail "Clear-DnsClientCache: $($_.Exception.Message)"
         Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m Could not flush DNS cache: $_"
     }
 }
@@ -285,10 +293,12 @@ function Optimize-Network {
         # Flush ARP cache
         $null = netsh interface ip delete arpcache 2>&1
         if ($LASTEXITCODE -ne 0) { throw "netsh exited with code $LASTEXITCODE" }
+        Write-MoleOperation -Action "OPTIMIZED" -Path "ARP cache" -Detail "netsh interface ip delete arpcache"
         Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m ARP cache cleared"
         $script:OptimizationsApplied++
     }
     catch {
+        Write-MoleOperation -Action "FAILED" -Path "ARP cache" -Detail "netsh interface ip delete arpcache: $($_.Exception.Message)"
         Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m ARP cache clear failed"
     }
 }
@@ -373,6 +383,13 @@ function Test-SystemFiles {
         $output = Read-SfcOutput "$env:TEMP\sfc_output.txt"
         Remove-Item "$env:TEMP\sfc_output.txt" -Force -ErrorAction SilentlyContinue
 
+        $sfcExit = if ($sfcResult -and $sfcResult.PSObject.Properties['ExitCode']) { $sfcResult.ExitCode } else { "unknown" }
+        $verdict = if ($output -match "did not find any integrity violations") { "no integrity violations" }
+        elseif ($output -match "found corrupt files and successfully repaired") { "repaired corrupt files" }
+        elseif ($output -match "found corrupt files but was unable to fix") { "found corrupt files it could not repair" }
+        else { "result not read, see CBS.log" }
+        Write-MoleOperation -Action "OPTIMIZED" -Path "System files" -Detail "sfc /scannow exit code ${sfcExit}: $verdict"
+
         if ($output -match "did not find any integrity violations") {
             Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m No integrity violations found"
         }
@@ -391,6 +408,7 @@ function Test-SystemFiles {
         }
     }
     catch {
+        Write-MoleOperation -Action "FAILED" -Path "System files" -Detail "sfc /scannow: $($_.Exception.Message)"
         Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m System File Checker failed: $_"
     }
 }

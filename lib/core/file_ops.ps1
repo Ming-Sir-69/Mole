@@ -291,7 +291,7 @@ function Get-SafeDirectoryTreeItems {
     )
 
     $rootSnapshot = Get-MolePathSnapshot -Path $Path -AllowLeafLink
-    if (-not $rootSnapshot) { return @{ Success = $false; Items = @() } }
+    if (-not $rootSnapshot) { return @{ Success = $false; Items = @(); Reason = "path identity unavailable" } }
     # A linked directory is removed as a link; nothing under it is listed.
     if (Test-IsReparsePoint -Path $Path) {
         return @{
@@ -309,6 +309,7 @@ function Get-SafeDirectoryTreeItems {
         return @{
             Success = $false
             Items   = @()
+            Reason  = "could not list its contents: $($_.Exception.Message)"
         }
     }
 
@@ -320,6 +321,7 @@ function Get-SafeDirectoryTreeItems {
             return @{
                 Success = $false
                 Items   = @()
+                Reason  = "protected or whitelisted entry inside: $($item.FullName)"
             }
         }
     }
@@ -331,6 +333,16 @@ function Get-SafeDirectoryTreeItems {
     }
 }
 
+# "incomplete: removed 12 of 40 entries; stopped at <path>: <why>", so a partly
+# removed folder says how far the removal got and why it stopped.
+function Format-MoleTreeRemovalDetail {
+    param([hashtable]$Report)
+
+    $detail = "incomplete: removed $($Report.Removed) of $($Report.Total) entries"
+    if ($Report.Reason) { $detail += "; $($Report.Reason)" }
+    return $detail
+}
+
 function Remove-SafeDirectoryTree {
     <#
     .SYNOPSIS
@@ -340,9 +352,16 @@ function Remove-SafeDirectoryTree {
         [Parameter(Mandatory)]
         [string]$Path,
 
-        [hashtable]$ValidatedTree = $null
+        [hashtable]$ValidatedTree = $null,
+
+        # Filled with how far a removal got, so an incomplete one can be recorded.
+        [hashtable]$Report = $null
     )
 
+    if ($null -eq $Report) { $Report = @{} }
+    $Report.Removed = 0
+    $Report.Total = 0
+    $Report.Reason = ""
     $tree = if ($null -ne $ValidatedTree) {
         $ValidatedTree
     }
@@ -352,6 +371,7 @@ function Remove-SafeDirectoryTree {
 
     if (-not $tree.Success -or -not (Test-SafePath $Path) -or
         -not (Test-MolePathSnapshot $tree.RootSnapshot)) {
+        $Report.Reason = if ($tree.Contains('Reason') -and $tree.Reason) { "refused: $($tree.Reason)" } else { "refused: the folder changed or is protected" }
         return $false
     }
 
@@ -359,28 +379,38 @@ function Remove-SafeDirectoryTree {
     if ($null -ne $tree.Items) {
         $orderedItems = @($tree.Items | Sort-Object { $_.FullName.Length } -Descending)
     }
+    $Report.Total = $orderedItems.Count
 
     foreach ($item in $orderedItems) {
         try {
             if (-not (Test-SafePath $item.FullName) -or
-                -not (Test-MolePathSnapshot $item.MolePathSnapshot)) { return $false }
+                -not (Test-MolePathSnapshot $item.MolePathSnapshot)) {
+                $Report.Reason = "stopped at $($item.FullName): it changed or is protected"
+                return $false
+            }
             Remove-TreeEntry -Path $item.FullName
+            $Report.Removed++
             Write-Debug "Removed child item: $($item.FullName)"
         }
         catch {
             Write-Debug "Failed to remove child item: $($item.FullName) - $_"
+            $Report.Reason = "stopped at $($item.FullName): $($_.Exception.Message)"
             return $false
         }
     }
 
     try {
-        if (-not (Test-SafePath $Path) -or -not (Test-MolePathSnapshot $tree.RootSnapshot)) { return $false }
+        if (-not (Test-SafePath $Path) -or -not (Test-MolePathSnapshot $tree.RootSnapshot)) {
+            $Report.Reason = "kept the folder itself: it changed or is protected"
+            return $false
+        }
         Remove-TreeEntry -Path $Path
         Write-Debug "Removed directory root: $Path"
         return $true
     }
     catch {
         Write-Debug "Failed to remove directory root: $Path - $_"
+        $Report.Reason = "kept the folder itself: $($_.Exception.Message)"
         return $false
     }
 }
@@ -520,6 +550,9 @@ function Remove-SafeItem {
     if ($isDirectory) {
         $validatedTree = Get-SafeDirectoryTreeItems -Path $Path
         if (-not $validatedTree.Success) {
+            if (-not $script:MoleDryRunMode) {
+                Write-MoleOperation -Action "FAILED" -Path $Path -Detail "refused: $($validatedTree.Reason)"
+            }
             return $false
         }
     }
@@ -559,8 +592,9 @@ function Remove-SafeItem {
             Move-MoleItemToRecycleBin -Path $Path -Snapshot $pathSnapshot
         }
         elseif ($isDirectory) {
-            if (-not (Remove-SafeDirectoryTree -Path $Path -ValidatedTree $validatedTree)) {
-                Write-MoleOperation -Action "FAILED" -Path $Path -Detail "incomplete"
+            $treeReport = @{}
+            if (-not (Remove-SafeDirectoryTree -Path $Path -ValidatedTree $validatedTree -Report $treeReport)) {
+                Write-MoleOperation -Action "FAILED" -Path $Path -Detail (Format-MoleTreeRemovalDetail $treeReport)
                 return $false
             }
         }
@@ -623,6 +657,9 @@ function Remove-SafeItems {
             $validatedTree = Get-SafeDirectoryTreeItems -Path $path
             if (-not $validatedTree.Success) {
                 $failedCount++
+                if (-not $script:MoleDryRunMode) {
+                    Write-MoleOperation -Action "FAILED" -Path $path -Detail "refused: $($validatedTree.Reason)"
+                }
                 continue
             }
         }
@@ -639,9 +676,10 @@ function Remove-SafeItems {
         
         try {
             if ($isDirectory) {
-                if (-not (Remove-SafeDirectoryTree -Path $path -ValidatedTree $validatedTree)) {
+                $treeReport = @{}
+                if (-not (Remove-SafeDirectoryTree -Path $path -ValidatedTree $validatedTree -Report $treeReport)) {
                     $failedCount++
-                    Write-MoleOperation -Action "FAILED" -Path $path -Detail "incomplete"
+                    Write-MoleOperation -Action "FAILED" -Path $path -Detail (Format-MoleTreeRemovalDetail $treeReport)
                     continue
                 }
             }

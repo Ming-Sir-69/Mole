@@ -844,9 +844,21 @@ function Uninstall-Mole {
         Write-Info "Found config directory: $configDir"
         $response = Read-Host "  Remove config files? (y/N)"
         if ($response -eq "y" -or $response -eq "Y") {
+            # operations.log is the record of what Mole removed; support reads it after
+            # a report, so it outlives the CLI along with its rotated copy.
             try {
-                Remove-Item -LiteralPath $configDir -Recurse -Force
-                Write-Success "Removed config: $configDir"
+                $kept = @()
+                foreach ($item in @(Get-ChildItem -LiteralPath $configDir -Force -ErrorAction Stop)) {
+                    if ($item.Name -like 'operations.log*') { $kept += $item.Name; continue }
+                    Remove-Item -LiteralPath $item.FullName -Recurse -Force -ErrorAction Stop
+                }
+                if ($kept.Count -eq 0) {
+                    Remove-Item -LiteralPath $configDir -Force -ErrorAction Stop
+                    Write-Success "Removed config: $configDir"
+                }
+                else {
+                    Write-Success "Removed config: $configDir (kept $($kept -join ', '))"
+                }
             }
             catch {
                 Write-MoleWarning "Failed to remove config: $_"

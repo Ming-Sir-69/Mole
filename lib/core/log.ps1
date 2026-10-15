@@ -70,7 +70,7 @@ function Write-MoleOperation {
         $safeDetail = if ($Detail) { (ConvertTo-MoleLogValue $Detail).Replace("(", "[").Replace(")", "]") } else { "-" }
         $line = "[$timestamp] [$label] $Action $(ConvertTo-MoleLogValue $Path) ($safeDetail)"
         $file = $script:MoleOperationsLogFile
-        $encoding = New-Object System.Text.UTF8Encoding $false
+        $text = "$line`r`n"
         if (-not $script:MoleOperationsLogStarted) {
             $dir = Split-Path -Parent $file
             if (-not [System.IO.Directory]::Exists($dir)) { [void][System.IO.Directory]::CreateDirectory($dir) }
@@ -80,12 +80,34 @@ function Write-MoleOperation {
             }
             # The marker is written with the first record, so a run that removes
             # nothing leaves the log untouched.
-            [System.IO.File]::AppendAllText($file, "`r`n# ========== $label session started at $timestamp ==========`r`n", $encoding)
-            $script:MoleOperationsLogStarted = $true
+            $text = "`r`n# ========== $label session started at $timestamp ==========`r`n$text"
         }
-        [System.IO.File]::AppendAllText($file, "$line`r`n", $encoding)
+        Add-MoleOperationText -File $file -Text $text
+        $script:MoleOperationsLogStarted = $true
     }
-    catch { } # The record must never fail the removal it describes.
+    catch {
+        # The record must never fail the removal it describes, but --debug says it was lost.
+        Write-Debug "operations.log not written: $($_.Exception.Message)"
+    }
+}
+
+# Another Mole run (or mo analyze) may hold the file for the moment it appends,
+# so a sharing violation is retried briefly instead of dropping the line.
+function Add-MoleOperationText {
+    param([string]$File, [string]$Text)
+
+    $encoding = New-Object System.Text.UTF8Encoding $false
+    $attempts = 5
+    for ($attempt = 1; ; $attempt++) {
+        try {
+            [System.IO.File]::AppendAllText($File, $Text, $encoding)
+            return
+        }
+        catch [System.IO.IOException] {
+            if ($attempt -ge $attempts) { throw }
+            Start-Sleep -Milliseconds (20 * $attempt)
+        }
+    }
 }
 
 function Add-MoleLogLine {

@@ -61,6 +61,7 @@ Describe "mo optimize steps" {
         Mock Start-Process { }
         Mock Stop-Process { }
         Mock Remove-Item { }
+        Mock Write-MoleOperation { }
     }
 
     AfterEach {
@@ -89,6 +90,12 @@ Describe "mo optimize steps" {
         Should -Invoke Optimize-Volume -Times 1 -Exactly
         Should -Invoke netsh -ParameterFilter { $args -contains "arpcache" } -Times 1 -Exactly
         $output | Should -Match "Optimizations applied: \S*3"
+
+        # Each state change leaves one operations.log row.
+        Should -Invoke Write-MoleOperation -Times 3 -Exactly
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq "OPTIMIZED" -and $Path -eq "C:" -and $Detail -eq "Optimize-Volume" }
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq "OPTIMIZED" -and $Path -eq "DNS client cache" }
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq "OPTIMIZED" -and $Path -eq "ARP cache" }
     }
 
     It "Counts only the steps it lists in an elevated dry run" {
@@ -105,6 +112,7 @@ Describe "mo optimize steps" {
         $output | Should -Match "Would flush DNS cache"
         $output | Should -Match "Would clear ARP cache"
         $output | Should -Match "Would apply \S*3\S* optimizations"
+        Should -Invoke Write-MoleOperation -Times 0 -Exactly
         $output | Should -Not -Match "Winsock|TCP/IP|Font Cache|Icon Cache|Search Index|Store Cache|wsreset"
     }
 
@@ -132,6 +140,7 @@ Describe "Native optimization outcomes" {
         $script:OptimizationsApplied = 0
         $script:DryRun = $false
         Mock Test-IsAdmin { $true }
+        Mock Write-MoleOperation { }
     }
     It "Does not count a failing native ARP operation as applied" {
         Mock netsh { $global:LASTEXITCODE = 5 }
@@ -139,6 +148,7 @@ Describe "Native optimization outcomes" {
         $script:OptimizationsApplied | Should -Be 0
         $output | Should -Not -Match 'ARP cache cleared'
         $output | Should -Match 'ARP cache clear failed'
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq 'FAILED' -and $Path -eq 'ARP cache' -and $Detail -like '*code 5' }
     }
     It "Counts a successful native ARP operation" {
         Mock netsh { $global:LASTEXITCODE = 0 }
@@ -153,6 +163,7 @@ Describe "System image and file checks" {
         $script:IssuesFixed = 0
         $script:DryRun = $false
         Mock Test-IsAdmin { $true }
+        Mock Write-MoleOperation { }
     }
 
     It "Reads the image verdict as '<State>' and only suggests the repair" -ForEach @(
@@ -210,6 +221,7 @@ Describe "System image and file checks" {
             $output = Test-SystemFiles 6>&1 | Out-String
             $output | Should -Match ([regex]::Escape($Expect))
             $output | Should -Not -Match "Scan completed"
+            Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq "OPTIMIZED" -and $Path -eq "System files" -and $Detail -like "sfc /scannow exit code 0: *" }
         }
         finally { $env:TEMP = $savedTemp }
     }

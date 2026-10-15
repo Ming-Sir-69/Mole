@@ -279,6 +279,59 @@ Describe "File Operations Module" {
             ConvertTo-MoleLogValue $name | Should -BeExactly 'C:\dir\x\tname\nforged\x1b'
         }
 
+        It "Retries a line while another run holds the log" {
+            $dir = Split-Path -Parent $script:MoleOperationsLogFile
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $script:HeldLog = [System.IO.File]::Open($script:MoleOperationsLogFile, 'OpenOrCreate', 'ReadWrite', 'None')
+            try {
+                Mock Start-Sleep { $script:HeldLog.Dispose() }
+                Write-MoleOperation -Action "REMOVED" -Path "C:\held\file.txt" -Detail "1 KB"
+                Should -Invoke Start-Sleep -Times 1 -Exactly
+            }
+            finally { $script:HeldLog.Dispose() }
+            Get-Content -LiteralPath $script:MoleOperationsLogFile -Raw | Should -Match "REMOVED C:\\held\\file\.txt \(1 KB\)"
+        }
+
+        It "Says on the debug stream when a line could not be written" {
+            $dir = Split-Path -Parent $script:MoleOperationsLogFile
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $held = [System.IO.File]::Open($script:MoleOperationsLogFile, 'OpenOrCreate', 'ReadWrite', 'None')
+            try {
+                Mock Start-Sleep { }
+                $DebugPreference = 'Continue'
+                $debug = Write-MoleOperation -Action "REMOVED" -Path "C:\held\file.txt" 5>&1 | Out-String
+                Should -Invoke Start-Sleep -Times 4 -Exactly
+            }
+            finally { $held.Dispose() }
+            $debug | Should -Match "operations\.log not written"
+        }
+
+        It "Records why a folder was refused before anything was removed" {
+            $dir = Join-Path $script:TestDir ("refused-" + [guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Mock Get-SafeDirectoryTreeItems { @{ Success = $false; Items = @(); Reason = "protected or whitelisted entry inside: C:\x\keep" } }
+
+            Remove-SafeItem -Path $dir -Recurse | Should -Be $false
+            Remove-SafeItems -Paths @($dir) -Description "Refused"
+
+            $lines = @(Get-Content -LiteralPath $script:MoleOperationsLogFile | Where-Object { $_.Contains("FAILED $dir (refused: protected or whitelisted entry inside: C:\x\keep)") })
+            $lines.Count | Should -Be 2
+        }
+
+        It "Records how far a partial folder removal got" {
+            $dir = Join-Path $script:TestDir ("partial-" + [guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            foreach ($name in @("a.txt", "b.txt", "locked.txt")) { Set-Content -LiteralPath (Join-Path $dir $name) -Value "x" }
+            $locked = Join-Path $dir "locked.txt"
+            $script:LockedPath = $locked
+            Mock Remove-TreeEntry { if ($Path -eq $script:LockedPath) { throw "in-use-canary" } else { Remove-Item -LiteralPath $Path -Force } }
+
+            Remove-SafeItem -Path $dir -Recurse | Should -Be $false
+
+            $text = Get-Content -LiteralPath $script:MoleOperationsLogFile -Raw
+            $text | Should -Match ("FAILED " + [regex]::Escape($dir) + " \(incomplete: removed \d of 3 entries; stopped at " + [regex]::Escape($locked) + ": in-use-canary\)")
+        }
+
         It "Moves a log over its size limit aside before the next session" {
             $dir = Split-Path -Parent $script:MoleOperationsLogFile
             New-Item -ItemType Directory -Path $dir -Force | Out-Null

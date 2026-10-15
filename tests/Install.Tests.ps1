@@ -159,6 +159,40 @@ Describe "install.ps1 -Uninstall" {
         Test-Path $own | Should -BeFalse
     }
 
+    It "Keeps the operation log when the user removes the config files" {
+        $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
+        New-CliTree -Root $own
+        $InstallDir = $own
+        $env:USERPROFILE = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        $config = Join-Path $env:USERPROFILE ".config\mole"
+        New-Item -ItemType Directory -Path (Join-Path $config "cache") -Force | Out-Null
+        foreach ($name in @("operations.log", "operations.log.old", "whitelist.txt", "mole_debug_session.log", "cache\apps.json")) {
+            Set-Content -LiteralPath (Join-Path $config $name) -Value $name
+        }
+        Mock Read-Host { "y" }
+
+        Uninstall-Mole | Should -BeTrue
+
+        Get-Content -LiteralPath (Join-Path $config "operations.log") | Should -Be "operations.log"
+        Get-Content -LiteralPath (Join-Path $config "operations.log.old") | Should -Be "operations.log.old"
+        @(Get-ChildItem -LiteralPath $config -Force | ForEach-Object Name | Sort-Object) | Should -Be @("operations.log", "operations.log.old")
+    }
+
+    It "Removes the config folder when it holds no operation log" {
+        $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
+        New-CliTree -Root $own
+        $InstallDir = $own
+        $env:USERPROFILE = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        $config = Join-Path $env:USERPROFILE ".config\mole"
+        New-Item -ItemType Directory -Path $config -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $config "whitelist.txt") -Value "x"
+        Mock Read-Host { "y" }
+
+        Uninstall-Mole | Should -BeTrue
+
+        Test-Path -LiteralPath $config | Should -BeFalse
+    }
+
     It "Removes nothing from a folder that is not a Mole install" {
         $appData = Join-Path $env:LOCALAPPDATA "Mole"
         New-Item -ItemType Directory -Path $appData -Force | Out-Null
