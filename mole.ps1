@@ -29,6 +29,7 @@ $script:MOLE_CORE = Join-Path $script:MOLE_LIB "core"
 # Read the version before loading the rest of the runtime so every entrypoint
 # resolves the same release tag.
 . "$script:MOLE_CORE\version.ps1"
+Repair-MoleModulePath
 $script:MOLE_VER = Get-MoleVersionString -RootDir $script:MOLE_ROOT
 
 # Import core

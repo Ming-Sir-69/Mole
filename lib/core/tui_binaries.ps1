@@ -71,6 +71,22 @@ function Get-ChecksumFromSums {
     return $null
 }
 
+# SHA-256 through .NET, so verification never depends on module autoloading
+# (Get-FileHash is a script function in Windows PowerShell 5.1, #1744).
+function Get-MoleFileSha256 {
+    param([string]$Path)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($stream)) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $stream.Dispose()
+        $sha.Dispose()
+    }
+}
+
 # Returns "ok", "unavailable" (no release, asset or published checksum) or
 # "mismatch" (the download did not match its published checksum and was deleted).
 function Restore-PrebuiltTuiBinary {
@@ -124,7 +140,7 @@ function Restore-PrebuiltTuiBinary {
     $downloadPath = "$DestinationPath.download"
     try {
         Invoke-WebRequest -Uri "$releaseRoot/$assetName" -Headers $script:MoleGitHubHeaders -OutFile $downloadPath -UseBasicParsing
-        $actualHash = (Get-FileHash -Path $downloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $actualHash = Get-MoleFileSha256 -Path $downloadPath
         if ($actualHash -ne $expectedHash) {
             Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
             return "mismatch"
@@ -133,6 +149,9 @@ function Restore-PrebuiltTuiBinary {
         return "ok"
     }
     catch {
+        # The release and its checksum answered, so this is a real failure;
+        # say what it was instead of only suggesting Go (#1744).
+        Write-Host "  Could not fetch the prebuilt $Name tool: $($_.Exception.Message)" -ForegroundColor Yellow
         if (Test-Path $downloadPath) {
             Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
         }

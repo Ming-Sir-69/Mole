@@ -418,6 +418,58 @@ Describe "Version Helpers" {
     }
 }
 
+Describe "Module path repair (#1744)" {
+    BeforeEach {
+        $script:SavedModulePath = $env:PSModulePath
+        $script:SavedSystemRoot = $env:SystemRoot
+        $env:SystemRoot = 'C:\Windows'
+    }
+    AfterEach {
+        $env:PSModulePath = $script:SavedModulePath
+        $env:SystemRoot = $script:SavedSystemRoot
+    }
+
+    It "Drops PowerShell 7 module folders inherited by Windows PowerShell and keeps the rest" {
+        $env:PSModulePath = @(
+            'C:\Users\me\Documents\PowerShell\Modules',
+            'C:\Program Files\PowerShell\Modules',
+            'c:\program files\powershell\7\Modules',
+            'C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.0.0_x64__8wekyb3d8bbwe\Modules',
+            'C:\Users\me\Documents\WindowsPowerShell\Modules',
+            'D:\Tools\Modules',
+            'C:\Program Files\WindowsPowerShell\Modules',
+            'C:\Windows\system32\WindowsPowerShell\v1.0\Modules\'
+        ) -join ';'
+        Repair-MoleModulePath -Edition 'Desktop'
+        $env:PSModulePath | Should -Be (@(
+            'C:\Users\me\Documents\WindowsPowerShell\Modules',
+            'D:\Tools\Modules',
+            'C:\Program Files\WindowsPowerShell\Modules',
+            'C:\Windows\system32\WindowsPowerShell\v1.0\Modules\'
+        ) -join ';')
+    }
+
+    It "Puts the Windows PowerShell system modules back when the inherited path lost them" {
+        $env:PSModulePath = 'C:\Program Files\PowerShell\7\Modules;D:\Tools\Modules'
+        Repair-MoleModulePath -Edition 'Desktop'
+        $env:PSModulePath | Should -Be ('D:\Tools\Modules;' + 'C:\Windows\System32\WindowsPowerShell\v1.0\Modules')
+    }
+
+    It "Leaves PowerShell 7 itself alone" {
+        $env:PSModulePath = 'C:\Program Files\PowerShell\7\Modules;D:\Tools\Modules'
+        Repair-MoleModulePath -Edition 'Core'
+        $env:PSModulePath | Should -Be 'C:\Program Files\PowerShell\7\Modules;D:\Tools\Modules'
+    }
+
+    It "Runs in mole.ps1 before the runtime is loaded" {
+        $lines = Get-Content (Join-Path $script:WindowsDir 'mole.ps1')
+        $repair = [array]::FindIndex([string[]]$lines, [Predicate[string]] { param($l) $l -match '^\s*Repair-MoleModulePath\s*$' })
+        $common = [array]::FindIndex([string[]]$lines, [Predicate[string]] { param($l) $l -match '^\s*\.\s+".*\\core\\common\.ps1"' })
+        $repair | Should -BeGreaterThan -1
+        $common | Should -BeGreaterThan $repair
+    }
+}
+
 Describe "Prebuilt TUI download verification" {
     BeforeEach {
         $script:Dest = Join-Path $TestDrive ("bin-" + [guid]::NewGuid().ToString("N") + "\status.exe")
@@ -476,6 +528,20 @@ Describe "Prebuilt TUI download verification" {
         $script:SumsText = ("0" * 64) + "  status-windows-x64.exe"
         Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "mismatch"
         Test-Path $script:Dest | Should -BeFalse
+        Test-Path "$($script:Dest).download" | Should -BeFalse
+    }
+
+    It "Verifies the checksum without Get-FileHash (#1744)" {
+        Mock Get-FileHash { throw [System.Management.Automation.CommandNotFoundException]::new("Get-FileHash") }
+        Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "ok"
+        Test-Path $script:Dest | Should -BeTrue
+    }
+
+    It "Names the cause when the verified release cannot be fetched (#1744)" {
+        Mock Write-Host { }
+        Mock Invoke-WebRequest -ParameterFilter { $OutFile } { throw "connection reset" }
+        Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "unavailable"
+        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like "*prebuilt status tool: connection reset*" }
         Test-Path "$($script:Dest).download" | Should -BeFalse
     }
 
