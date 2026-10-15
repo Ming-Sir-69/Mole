@@ -47,7 +47,7 @@ function Show-Version {
     Write-Host "Architecture: $(Get-NativeArchitecture)"
     Write-Host "PowerShell: $($info.PowerShell)"
     Write-Host "Disk Free: $(Get-FreeSpace)"
-    Write-Host "Install: $(Get-MoleInstallMethod -RootDir $script:MOLE_ROOT)"
+    Write-Host "Install: $(Get-MoleInstallDescription -RootDir $script:MOLE_ROOT)"
 }
 
 # The machine's own architecture. An x64 process on ARM64 Windows (mo.exe
@@ -74,10 +74,51 @@ function Get-MoleDebugHeader {
         $lines += "Windows: $($windows.Name) $($windows.Version)"
         $lines += "Architecture: $(Get-NativeArchitecture)"
         $lines += "PowerShell: $($info.PowerShell) $($PSVersionTable.PSEdition)"
-        $lines += "Install: $(Get-MoleInstallMethod -RootDir $script:MOLE_ROOT)"
+        $lines += "Install: $(Get-MoleInstallDescription -RootDir $script:MOLE_ROOT)"
     }
     catch { $lines += "Environment: unavailable" }
     return $lines
+}
+
+# A source install checks out a release tag; naming its commit tells a report
+# exactly which source ran. Read from .git without starting git.
+function Get-MoleSourceCommit {
+    param([string]$RootDir)
+
+    $gitDir = Join-Path $RootDir ".git"
+    try {
+        $head = ([System.IO.File]::ReadAllText((Join-Path $gitDir "HEAD"))).Trim()
+        if ($head -match '^ref: (refs/\S+)$') {
+            $ref = $Matches[1]
+            $loose = Join-Path $gitDir ($ref -replace '/', '\')
+            $head = $null
+            if (Test-Path -LiteralPath $loose -PathType Leaf) {
+                $head = ([System.IO.File]::ReadAllText($loose)).Trim()
+            }
+            else {
+                $packed = Join-Path $gitDir "packed-refs"
+                if (Test-Path -LiteralPath $packed -PathType Leaf) {
+                    foreach ($line in [System.IO.File]::ReadAllLines($packed)) {
+                        if ($line -match "^([0-9a-f]{40}) $([regex]::Escape($ref))$") { $head = $Matches[1]; break }
+                    }
+                }
+            }
+        }
+        if ($head -match '^[0-9a-f]{40}$') { return $head.Substring(0, 7) }
+    }
+    catch { } # A worktree link or unreadable metadata just leaves the commit out.
+    return $null
+}
+
+function Get-MoleInstallDescription {
+    param([string]$RootDir)
+
+    $method = Get-MoleInstallMethod -RootDir $RootDir
+    if ($method -eq "Source") {
+        $commit = Get-MoleSourceCommit -RootDir $RootDir
+        if ($commit) { return "Source ($commit)" }
+    }
+    return $method
 }
 
 # How this copy was installed, by the folder each channel installs into.

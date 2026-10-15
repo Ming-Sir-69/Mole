@@ -142,3 +142,48 @@ Describe "mo remove" {
         Test-Path (Join-Path $script:Fake "uninstall-called.txt") | Should -BeTrue
     }
 }
+
+Describe "mo --version install line" {
+    BeforeAll {
+        $windowsDir = Split-Path -Parent $PSScriptRoot
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $windowsDir "mole.ps1"), [ref]$null, [ref]$null)
+        foreach ($name in @("Get-MoleSourceCommit", "Get-MoleInstallDescription", "Get-MoleInstallMethod")) {
+            $definition = $ast.Find({
+                    param($node)
+                    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name
+                }, $true)
+            . ([scriptblock]::Create($definition.Extent.Text))
+            Set-Item -Path "function:script:$name" -Value (Get-Item "function:$name").ScriptBlock
+        }
+        $script:Sha = "0123456789abcdef0123456789abcdef01234567"
+    }
+
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path (Join-Path $script:Root ".git\refs\heads") -Force | Out-Null
+    }
+
+    It "Names the commit of a checked-out release tag" {
+        Set-Content -LiteralPath (Join-Path $script:Root ".git\HEAD") -Value $script:Sha
+        Get-MoleInstallDescription -RootDir $script:Root | Should -BeExactly "Source (0123456)"
+    }
+
+    It "Follows a branch ref, loose or packed" {
+        Set-Content -LiteralPath (Join-Path $script:Root ".git\HEAD") -Value "ref: refs/heads/windows"
+        Set-Content -LiteralPath (Join-Path $script:Root ".git\packed-refs") -Value @("# pack-refs with: peeled", "$($script:Sha) refs/heads/windows")
+        Get-MoleInstallDescription -RootDir $script:Root | Should -BeExactly "Source (0123456)"
+
+        Set-Content -LiteralPath (Join-Path $script:Root ".git\refs\heads\windows") -Value ("f" * 40)
+        Get-MoleInstallDescription -RootDir $script:Root | Should -BeExactly "Source (fffffff)"
+    }
+
+    It "Says Source without a commit when the metadata cannot be read" {
+        Set-Content -LiteralPath (Join-Path $script:Root ".git\HEAD") -Value "ref: refs/heads/missing"
+        Get-MoleInstallDescription -RootDir $script:Root | Should -BeExactly "Source"
+    }
+
+    It "Leaves a copy without Git metadata as Portable" {
+        Remove-Item -LiteralPath (Join-Path $script:Root ".git") -Recurse -Force
+        Get-MoleInstallDescription -RootDir $script:Root | Should -BeExactly "Portable"
+    }
+}
