@@ -1,4 +1,4 @@
-# Mole for Windows (CLI) - Release Guide
+# Mole CLI for Windows - Release Guide
 
 A Windows release goes through three hands: CI builds the assets into a draft release, the maintainer signs them on Windows, and the signed files replace the draft's before it is published. The macOS CLI on `main` has its own `V*` tags and release workflow; the two never share a version number.
 

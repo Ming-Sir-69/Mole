@@ -1,7 +1,7 @@
 <p align="right"><a href="https://github.com/tw93/Mole">macOS</a> · <b>Windows</b></p>
 
 <div align="center">
-  <h1>Mole for Windows</h1>
+  <h1>Mole CLI for Windows</h1>
   <p><b>WindowsパソコンのディープクリーンとアプリのアンインストールからOS最適化、ディスク分析、ステータス監視まで。無料のオープンソースCLI。</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · 日本語 · <a href="README_KR.md">한국어</a> · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a> · <a href="README_UA.md">Українська</a> · <a href="README_RU.md">Русский</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
@@ -13,7 +13,7 @@
 </div>
 
 <p align="center">
-  <img src="./docs/img/mole-windows.png" alt="Mole for Windows メニュー" width="1000" />
+  <img src="./docs/img/mole-windows.png" alt="Mole CLI for Windows メニュー" width="1000" />
 </p>
 
 > 💡 このブランチは無料のオープンソースWindows CLI（`mo`）です。ネイティブアプリがよければ、[Mole for Windows](https://mole.fit/windows) を別途ダウンロードできます。削除前の確認、アプリの更新、スタートアップ管理、ディスクの階層分析、リアルタイムのステータス表示を備えています。macOS版CLIは [mainブランチ](https://github.com/tw93/Mole) にあります。

@@ -1,7 +1,7 @@
 <p align="right"><a href="https://github.com/tw93/Mole">macOS</a> · <b>Windows</b></p>
 
 <div align="center">
-  <h1>Mole for Windows</h1>
+  <h1>Mole CLI for Windows</h1>
   <p><b>Windows 電腦深度清理、應用程式解除安裝、系統最佳化、磁碟分析與狀態監控，免費開源命令列</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · 繁體 · <a href="README_JA.md">日本語</a> · <a href="README_KR.md">한국어</a> · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a> · <a href="README_UA.md">Українська</a> · <a href="README_RU.md">Русский</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
@@ -13,7 +13,7 @@
 </div>
 
 <p align="center">
-  <img src="./docs/img/mole-windows.png" alt="Mole for Windows 選單介面" width="1000" />
+  <img src="./docs/img/mole-windows.png" alt="Mole CLI for Windows 選單介面" width="1000" />
 </p>
 
 > 💡 這個分支是免費開源的 Windows 命令列工具（`mo`），喜歡圖形介面的話可以單獨下載 [Mole for Windows](https://mole.fit/tw/windows)，支援刪除前逐項確認、應用程式更新、啟動項目管理、逐層分析磁碟空間與即時狀態監控，macOS 命令列在 [main 分支](https://github.com/tw93/Mole)。

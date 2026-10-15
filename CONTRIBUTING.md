@@ -1,4 +1,4 @@
-# Contributing to Mole for Windows
+# Contributing to Mole CLI for Windows
 
 Thanks for helping. This branch is the Windows CLI; the macOS CLI lives on `main` and has its own guide. Pull requests for Windows target the `windows` branch.
 

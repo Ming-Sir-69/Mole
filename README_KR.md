@@ -1,7 +1,7 @@
 <p align="right"><a href="https://github.com/tw93/Mole">macOS</a> · <b>Windows</b></p>
 
 <div align="center">
-  <h1>Mole for Windows</h1>
+  <h1>Mole CLI for Windows</h1>
   <p><b>Windows PC 심층 정리, 앱 제거, 시스템 최적화, 디스크 분석 및 상태 모니터링. 무료 오픈소스 CLI.</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · 한국어 · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a> · <a href="README_UA.md">Українська</a> · <a href="README_RU.md">Русский</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
@@ -13,7 +13,7 @@
 </div>
 
 <p align="center">
-  <img src="./docs/img/mole-windows.png" alt="Mole for Windows 메뉴" width="1000" />
+  <img src="./docs/img/mole-windows.png" alt="Mole CLI for Windows 메뉴" width="1000" />
 </p>
 
 > 💡 이 브랜치는 무료 오픈소스 Windows CLI(`mo`)입니다. 네이티브 앱을 원한다면 [Mole for Windows](https://mole.fit/windows)를 별도로 내려받을 수 있습니다. 삭제 전 항목별 확인, 앱 업데이트, 시작 프로그램 관리, 디스크 단계별 분석, 실시간 상태 확인을 제공합니다. macOS CLI는 [main 브랜치](https://github.com/tw93/Mole)에 있습니다.

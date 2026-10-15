@@ -1,4 +1,4 @@
-# Mole for Windows (CLI) Agent Guide
+# Mole CLI (Windows) Agent Guide
 
 This file is the source of truth for any AI agent working on the `windows` branch of `tw93/Mole` (Claude Code, Codex, etc.). `CLAUDE.md` routes here without copying policy, including on Windows checkouts without symlink support. The macOS CLI lives on `main` with its own guide; do not apply macOS rules (`/System`, Bash 3.2, Bats) here.
 
@@ -14,7 +14,7 @@ Cover all four relationships when asked for a complete sync: the two apps, the t
 
 ## Project
 
-Mole for Windows is the free, open-source, terminal-first Windows maintenance CLI: PowerShell 5.1 scripts (`mole.ps1`, `bin/*.ps1`, `lib/**`), two Go TUIs (`cmd/analyze`, `cmd/status`) and the `mo.exe` launcher (`cmd/mo`) that package managers put on PATH. It is GPL-3.0, like `main`. Safety matters more than speed: a cleanup that deletes the wrong thing costs more than one that skips.
+Mole CLI (Windows) is the free, open-source, terminal-first Windows maintenance CLI: PowerShell 5.1 scripts (`mole.ps1`, `bin/*.ps1`, `lib/**`), two Go TUIs (`cmd/analyze`, `cmd/status`) and the `mo.exe` launcher (`cmd/mo`) that package managers put on PATH. It is GPL-3.0, like `main`. Safety matters more than speed: a cleanup that deletes the wrong thing costs more than one that skips.
 
 ## Product Boundary
 

@@ -1,6 +1,6 @@
 # Security Policy
 
-Mole for Windows is a local system maintenance tool. It includes high-risk operations such as cleanup, uninstall, optimization, and artifact removal, so safety boundaries, deletion logic, and release integrity are treated as security-sensitive.
+Mole CLI for Windows is a local system maintenance tool. It includes high-risk operations such as cleanup, uninstall, optimization, and artifact removal, so safety boundaries, deletion logic, and release integrity are treated as security-sensitive.
 
 ## Reporting a Vulnerability
 

@@ -1,7 +1,7 @@
 <p align="right"><a href="https://github.com/tw93/Mole">macOS</a> · <b>Windows</b></p>
 
 <div align="center">
-  <h1>Mole for Windows</h1>
+  <h1>Mole CLI for Windows</h1>
   <p><b>Tiefenreinigung, App-Deinstallation, Systemoptimierung, Festplattenanalyse und Statusüberwachung für deinen Windows-PC. Kostenloses Open-Source-CLI.</b></p>
     <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · <a href="README_KR.md">한국어</a> · Deutsch · <a href="README_FR.md">Français</a> · <a href="README_UA.md">Українська</a> · <a href="README_RU.md">Русский</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
@@ -13,7 +13,7 @@
 </div>
 
 <p align="center">
-  <img src="./docs/img/mole-windows.png" alt="Mole for Windows Menü" width="1000" />
+  <img src="./docs/img/mole-windows.png" alt="Mole CLI for Windows Menü" width="1000" />
 </p>
 
 > 💡 Dieser Branch ist das kostenlose Open-Source-Windows-CLI (`mo`). Lieber eine native App? [Mole for Windows](https://mole.fit/windows) ist ein separater Download mit Prüfung vor dem Löschen, App-Updates, Autostart-Verwaltung, Festplatten-Drill-down und Live-Status. Das macOS-CLI findest du im [main-Branch](https://github.com/tw93/Mole).

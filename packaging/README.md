@@ -1,6 +1,6 @@
 # Package Manager Manifests
 
-Templates for publishing Mole for Windows to winget and Scoop. They are filled per release by `scripts/render-packaging.ps1`; never submit a template as is.
+Templates for publishing Mole CLI for Windows to winget and Scoop. They are filled per release by `scripts/render-packaging.ps1`; never submit a template as is.
 
 | Manager | Package | Command on PATH | Update command |
 |---|---|---|---|

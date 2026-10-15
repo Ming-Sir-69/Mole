@@ -1,7 +1,7 @@
 <p align="right"><a href="https://github.com/tw93/Mole">macOS</a> · <b>Windows</b></p>
 
 <div align="center">
-  <h1>Mole for Windows</h1>
+  <h1>Mole CLI for Windows</h1>
   <p><b>Nettoyage en profondeur, désinstallation d'apps, optimisation, analyse de disque et surveillance de votre PC Windows. CLI open source gratuite.</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · <a href="README_KR.md">한국어</a> · <a href="README_DE.md">Deutsch</a> · Français · <a href="README_UA.md">Українська</a> · <a href="README_RU.md">Русский</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
@@ -13,7 +13,7 @@
 </div>
 
 <p align="center">
-  <img src="./docs/img/mole-windows.png" alt="Menu de Mole for Windows" width="1000" />
+  <img src="./docs/img/mole-windows.png" alt="Menu de Mole CLI for Windows" width="1000" />
 </p>
 
 > 💡 Cette branche contient la CLI Windows open source gratuite (`mo`). Vous préférez une app native ? [Mole for Windows](https://mole.fit/windows) se télécharge séparément : nettoyage avec vérification avant suppression, mises à jour des applications, gestion du démarrage, exploration détaillée du disque et état en direct. La CLI macOS se trouve sur la [branche main](https://github.com/tw93/Mole).
