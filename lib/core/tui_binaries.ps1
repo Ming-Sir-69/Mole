@@ -262,7 +262,8 @@ function Ensure-TuiBinary {
 
     $restoreResult = "unavailable"
     try {
-        if (-not $Refresh -or (Test-TuiSourceMatchesRelease -WindowsDir $WindowsDir -Name $Name -Version $Version)) {
+        $sourceInstall = Test-Path -LiteralPath (Join-Path $WindowsDir ".git")
+        if ((-not $Refresh -and -not $sourceInstall) -or (Test-TuiSourceMatchesRelease -WindowsDir $WindowsDir -Name $Name -Version $Version)) {
             $restoreResult = Restore-PrebuiltTuiBinary -Name $Name -WindowsDir $WindowsDir -DestinationPath $DestinationPath -Version $Version
         }
     }

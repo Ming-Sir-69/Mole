@@ -343,3 +343,23 @@ Describe 'Native File launcher routing' {
         Should -Invoke Invoke-MoleCommand -Times 1 -Exactly -ParameterFilter { $CommandName -eq 'clean' -and $Arguments -contains '--dry-run' }
     }
 }
+
+Describe 'Review regressions: first native launch' {
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $script:Root '.git') -Force | Out-Null
+        Mock Get-Command { $null } -ParameterFilter { $Name -eq 'go' }
+        Mock Test-TuiSourceMatchesRelease { $false }
+        Mock Restore-PrebuiltTuiBinary { 'ok' }
+    }
+    It 'Does not download a different release for missing <_>' -ForEach @('analyze','status') {
+        $result = Ensure-TuiBinary -Name $_ -WindowsDir $script:Root -DestinationPath (Join-Path $script:Root "$_.exe") -SourcePath "./cmd/$_" -Version '1.34.0'
+        $result | Should -BeNullOrEmpty
+        Should -Invoke Restore-PrebuiltTuiBinary -Times 0 -Exactly
+    }
+    It 'Allows the release binary when the source is equivalent' {
+        Mock Test-TuiSourceMatchesRelease { $true }
+        Ensure-TuiBinary -Name analyze -WindowsDir $script:Root -DestinationPath (Join-Path $script:Root 'analyze.exe') -SourcePath './cmd/analyze' -Version '1.34.0' | Should -Not -BeNullOrEmpty
+        Should -Invoke Restore-PrebuiltTuiBinary -Times 1 -Exactly
+    }
+}
