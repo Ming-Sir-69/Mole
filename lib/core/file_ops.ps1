@@ -560,12 +560,14 @@ function Remove-SafeItem {
         }
         elseif ($isDirectory) {
             if (-not (Remove-SafeDirectoryTree -Path $Path -ValidatedTree $validatedTree)) {
+                Write-MoleOperation -Action "FAILED" -Path $Path -Detail "incomplete"
                 return $false
             }
         }
         else {
             Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
         }
+        Write-MoleOperation -Action $(if ($Recycle) { "RECYCLED" } else { "REMOVED" }) -Path $Path -Detail $sizeHuman
         
         # Update statistics
         if (-not $Recycle) { $script:TotalSizeCleaned += $sizeKB }
@@ -581,6 +583,7 @@ function Remove-SafeItem {
     }
     catch {
         Write-Debug "Failed to remove $Path : $_"
+        Write-MoleOperation -Action "FAILED" -Path $Path -Detail $_.Exception.Message
         if ($Recycle) { Write-Warning "Could not recycle $Path. Review the remaining files manually." }
         return $false
     }
@@ -638,18 +641,21 @@ function Remove-SafeItems {
             if ($isDirectory) {
                 if (-not (Remove-SafeDirectoryTree -Path $path -ValidatedTree $validatedTree)) {
                     $failedCount++
+                    Write-MoleOperation -Action "FAILED" -Path $path -Detail "incomplete"
                     continue
                 }
             }
             else {
                 Remove-Item -LiteralPath $path -Force -ErrorAction Stop
             }
+            Write-MoleOperation -Action "REMOVED" -Path $path -Detail (Format-ByteSize -Bytes $size)
             $totalSize += $size
             $removedCount++
         }
         catch {
             $failedCount++
             Write-Debug "Failed to remove: $path - $_"
+            Write-MoleOperation -Action "FAILED" -Path $path -Detail $_.Exception.Message
         }
     }
     

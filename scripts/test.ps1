@@ -11,6 +11,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $script:ExitCode = 0
+# Test removals must not land in the developer's own operation log.
+$env:MO_NO_OPLOG = "1"
 
 # Get script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

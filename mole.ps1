@@ -336,6 +336,10 @@ function Invoke-MoleCommand {
         }
     }
 
+    # The operation log reads the run from the environment in the command's own scope.
+    $env:_MOLE_OPLOG_RUN_COMMAND = $CommandName
+    $env:_MOLE_OPLOG_RUN_ID = "{0}-{1}-{2}" -f (Get-Date -Format "yyyyMMddHHmmss"), $PID, (Get-Random -Maximum 100000)
+
     # The command script loads the log module afresh, so the session has to
     # exist before it starts for its own debug lines to reach the file.
     $debugSession = $splatParams.ContainsKey("DebugMode")

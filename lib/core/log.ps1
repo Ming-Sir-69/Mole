@@ -29,6 +29,63 @@ $script:LogConfig = @{
     Verbose      = $false
 }
 
+# What clean, purge, optimize and uninstall actually removed, one line per
+# item in the macOS CLI's operations.log format, so a report can carry it.
+# Dry runs write nothing; MO_NO_OPLOG=1 turns it off, as on macOS.
+$script:MoleOperationsLogFile = "$env:USERPROFILE\.config\mole\operations.log"
+$script:MoleOperationsLogMaxBytes = 5MB
+$script:MoleOperationsLogStarted = $false
+
+function ConvertTo-MoleLogValue {
+    param([string]$Value)
+
+    # Control characters become escapes so a file name cannot forge a record.
+    # Backslashes stay literal: Windows paths are full of them.
+    return [regex]::Replace([string]$Value, '[\x00-\x1f\x7f]', {
+            param($match)
+            switch ([int][char]$match.Value) {
+                9 { '\t' }
+                10 { '\n' }
+                13 { '\r' }
+                default { '\x{0:x2}' -f [int][char]$match.Value }
+            }
+        })
+}
+
+function Write-MoleOperation {
+    param(
+        [string]$Action,
+        [string]$Path,
+        [string]$Detail = ""
+    )
+
+    if ($env:MO_NO_OPLOG -eq "1" -or [string]::IsNullOrEmpty($Path)) { return }
+
+    try {
+        $command = if ($env:_MOLE_OPLOG_RUN_COMMAND) { $env:_MOLE_OPLOG_RUN_COMMAND } else { "mole" }
+        $label = if ($env:_MOLE_OPLOG_RUN_ID) { "$command run=$($env:_MOLE_OPLOG_RUN_ID)" } else { $command }
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $line = "[$timestamp] [$label] $Action $(ConvertTo-MoleLogValue $Path)"
+        if ($Detail) { $line += " ($(ConvertTo-MoleLogValue $Detail))" }
+        $file = $script:MoleOperationsLogFile
+        $encoding = New-Object System.Text.UTF8Encoding $false
+        if (-not $script:MoleOperationsLogStarted) {
+            $dir = Split-Path -Parent $file
+            if (-not [System.IO.Directory]::Exists($dir)) { [void][System.IO.Directory]::CreateDirectory($dir) }
+            $info = New-Object System.IO.FileInfo $file
+            if ($info.Exists -and $info.Length -gt $script:MoleOperationsLogMaxBytes) {
+                Move-Item -LiteralPath $file -Destination "$file.old" -Force
+            }
+            # The marker is written with the first record, so a run that removes
+            # nothing leaves the log untouched.
+            [System.IO.File]::AppendAllText($file, "`r`n# ========== $label session started at $timestamp ==========`r`n", $encoding)
+            $script:MoleOperationsLogStarted = $true
+        }
+        [System.IO.File]::AppendAllText($file, "$line`r`n", $encoding)
+    }
+    catch { } # The record must never fail the removal it describes.
+}
+
 function Add-MoleLogLine {
     param([string]$Line)
 

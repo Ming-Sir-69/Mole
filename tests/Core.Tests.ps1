@@ -221,6 +221,75 @@ Describe "File Operations Module" {
         }
     }
 
+    Context "Operation log" {
+        BeforeEach {
+            $script:OriginalOperationsLog = $script:MoleOperationsLogFile
+            $script:OriginalOperationsMax = $script:MoleOperationsLogMaxBytes
+            $script:OriginalNoOplog = $env:MO_NO_OPLOG
+            $script:OriginalRunCommand = $env:_MOLE_OPLOG_RUN_COMMAND
+            $script:OriginalRunId = $env:_MOLE_OPLOG_RUN_ID
+            $env:MO_NO_OPLOG = $null
+            $env:_MOLE_OPLOG_RUN_COMMAND = "clean"
+            $env:_MOLE_OPLOG_RUN_ID = "run-canary"
+            $script:MoleOperationsLogFile = Join-Path (Join-Path $TestDrive ("oplog-" + [guid]::NewGuid().ToString("N"))) "operations.log"
+            $script:MoleOperationsLogStarted = $false
+            $script:OplogFile = Join-Path $script:TestDir "oplog_target.txt"
+            "Test content" | Set-Content -Path $script:OplogFile
+        }
+
+        AfterEach {
+            $script:MoleOperationsLogFile = $script:OriginalOperationsLog
+            $script:MoleOperationsLogMaxBytes = $script:OriginalOperationsMax
+            $script:MoleOperationsLogStarted = $false
+            $env:MO_NO_OPLOG = $script:OriginalNoOplog
+            $env:_MOLE_OPLOG_RUN_COMMAND = $script:OriginalRunCommand
+            $env:_MOLE_OPLOG_RUN_ID = $script:OriginalRunId
+            Set-DryRunMode -Enabled $false
+        }
+
+        It "Records each removed item under one session marker" {
+            $second = Join-Path $script:TestDir "oplog_second.txt"
+            "Test content" | Set-Content -Path $second
+            Remove-SafeItem -Path $script:OplogFile | Should -Be $true
+            Remove-SafeItems -Paths @($second) -Description "Second"
+
+            $lines = @(Get-Content -LiteralPath $script:MoleOperationsLogFile | Where-Object { $_ })
+            @($lines | Where-Object { $_.StartsWith("# ========== clean run=run-canary session started at ") }).Count | Should -Be 1
+            @($lines | Where-Object { $_.Contains("[clean run=run-canary] REMOVED $($script:OplogFile) (") }).Count | Should -Be 1
+            @($lines | Where-Object { $_.Contains("[clean run=run-canary] REMOVED $second (") }).Count | Should -Be 1
+        }
+
+        It "Writes nothing for a dry run or with MO_NO_OPLOG=1" {
+            Set-DryRunMode -Enabled $true
+            Remove-SafeItem -Path $script:OplogFile | Should -Be $true
+            Set-DryRunMode -Enabled $false
+            $env:MO_NO_OPLOG = "1"
+            Remove-SafeItem -Path $script:OplogFile | Should -Be $true
+            Test-Path -LiteralPath $script:MoleOperationsLogFile | Should -BeFalse
+        }
+
+        It "Records a removal that failed" {
+            Mock Remove-Item { throw "access-denied-canary" }
+            Remove-SafeItem -Path $script:OplogFile | Should -Be $false
+            Get-Content -LiteralPath $script:MoleOperationsLogFile -Raw | Should -Match ("FAILED " + [regex]::Escape($script:OplogFile) + " \(access-denied-canary\)")
+        }
+
+        It "Keeps one record per line whatever the name holds" {
+            $name = "C:\dir\x" + [char]9 + "name" + [char]10 + "forged" + [char]27
+            ConvertTo-MoleLogValue $name | Should -BeExactly 'C:\dir\x\tname\nforged\x1b'
+        }
+
+        It "Moves a log over its size limit aside before the next session" {
+            $dir = Split-Path -Parent $script:MoleOperationsLogFile
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath $script:MoleOperationsLogFile -Value ("x" * 64)
+            $script:MoleOperationsLogMaxBytes = 16
+            Remove-SafeItem -Path $script:OplogFile | Should -Be $true
+            Get-Content -LiteralPath "$($script:MoleOperationsLogFile).old" -Raw | Should -Match "x{64}"
+            Get-Content -LiteralPath $script:MoleOperationsLogFile -Raw | Should -Not -Match "x{64}"
+        }
+    }
+
     Context "Remove-SafeItem" {
         BeforeEach {
             $script:TestFile = Join-Path $script:TestDir "safe_remove_test.txt"

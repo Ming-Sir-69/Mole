@@ -1047,6 +1047,7 @@ function Uninstall-SelectedApps {
                 # UWP app
                 if ($app.PackageFullName) {
                     Remove-AppxPackage -Package $app.PackageFullName -ErrorAction Stop
+                    Write-MoleOperation -Action "UNINSTALLED" -Path $app.Name -Detail $app.PackageFullName
                     Write-Host " $esc[32m$($script:Icons.Success)$esc[0m"
                     $successCount++
                 }
@@ -1071,11 +1072,13 @@ function Uninstall-SelectedApps {
             # A cancelled, failed or still-running uninstall leaves its entry behind, and
             # then the install folder is still the app's: nothing is removed.
             if (-not (Test-UninstallEntryGone -KeyPath ([string](Get-MoleProperty $app 'RegistryKey')))) {
+                Write-MoleOperation -Action "FAILED" -Path $app.Name -Detail "still installed, exit code $exitCode"
                 Write-Host " $esc[33m(still installed, exit code $exitCode)$esc[0m"
                 $remainingCount++
                 continue
             }
 
+            Write-MoleOperation -Action "UNINSTALLED" -Path $app.Name -Detail "exit code $exitCode"
             Write-Host " $esc[32m$($script:Icons.Success)$esc[0m"
             $successCount++
 
@@ -1090,6 +1093,7 @@ function Uninstall-SelectedApps {
         catch {
             Write-Host " $esc[31m$($script:Icons.Error)$esc[0m"
             Write-Debug "Uninstall failed: $_"
+            Write-MoleOperation -Action "FAILED" -Path $app.Name -Detail $_.Exception.Message
             $failCount++
         }
     }
