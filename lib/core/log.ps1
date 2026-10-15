@@ -17,10 +17,27 @@ Initialize-MoleVisualDefaults
 # Log Configuration
 # ============================================================================
 
+# --debug keeps one session log a reporter can send. It sits with the CLI's
+# own config; %LOCALAPPDATA%\Mole belongs to the Mole for Windows app.
+$script:MoleDebugLogFile = Join-Path $env:USERPROFILE ".config\mole\mole_debug_session.log"
+
+# Each command script loads this module afresh after the router has set
+# MOLE_DEBUG, so the switch has to be read here, at load time.
 $script:LogConfig = @{
     DebugEnabled = $env:MOLE_DEBUG -eq "1"
-    LogFile      = $null
+    LogFile      = $(if ($env:MOLE_DEBUG -eq "1") { $script:MoleDebugLogFile } else { $null })
     Verbose      = $false
+}
+
+function Add-MoleLogLine {
+    param([string]$Line)
+
+    $path = $script:LogConfig.LogFile
+    if (-not $path) { return }
+    try {
+        [System.IO.File]::AppendAllText($path, "$Line`r`n", (New-Object System.Text.UTF8Encoding $false))
+    }
+    catch { } # A log that cannot be written must not stop maintenance.
 }
 
 # ============================================================================
@@ -50,10 +67,7 @@ function Write-LogMessage {
     Write-Host $output
     if ($script:CurrentSection.Active) { Start-Spinner }
 
-    # Also write to log file if configured
-    if ($script:LogConfig.LogFile) {
-        "$timestamp [$Level] $Message" | Out-File -Append -FilePath $script:LogConfig.LogFile -Encoding UTF8
-    }
+    Add-MoleLogLine "$timestamp [$Level] $Message"
 }
 
 function Write-Info {
@@ -107,6 +121,7 @@ function Write-Debug {
         Stop-Spinner
         Write-Host "  ${gray}[DEBUG] $Message${nc}"
         if ($script:CurrentSection.Active) { Start-Spinner }
+        Add-MoleLogLine "$(Get-Date -Format 'HH:mm:ss') [DEBUG] $Message"
     }
 }
 
@@ -299,7 +314,48 @@ function Enable-DebugMode {
     .SYNOPSIS
         Enable debug logging
     #>
+    $env:MOLE_DEBUG = "1"
     $script:LogConfig.DebugEnabled = $true
+    if (-not $script:LogConfig.LogFile) { $script:LogConfig.LogFile = $script:MoleDebugLogFile }
+}
+
+function Start-MoleDebugSession {
+    <#
+    .SYNOPSIS
+        Start a fresh --debug session log with the given header lines
+    #>
+    param([string[]]$Header)
+
+    Enable-DebugMode
+    $path = $script:MoleDebugLogFile
+    $gray = Get-MoleColor -Name "Gray"
+    $nc = Get-MoleColor -Name "NC"
+    try {
+        $dir = Split-Path -Parent $path
+        if (-not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $rule = "-" * 70
+        $text = (@($rule) + @($Header) + @($rule)) -join "`r`n"
+        [System.IO.File]::WriteAllText($path, "$text`r`n", (New-Object System.Text.UTF8Encoding $false))
+        Write-Host "${gray}[DEBUG] Debug logging enabled. Session log: $path${nc}"
+    }
+    catch {
+        $script:LogConfig.LogFile = $null
+        Write-MoleWarning "Debug log not writable: $path"
+    }
+}
+
+function Complete-MoleDebugSession {
+    <#
+    .SYNOPSIS
+        Tell the user where the --debug session log was saved
+    #>
+    if (-not $script:LogConfig.LogFile) { return }
+    $gray = Get-MoleColor -Name "Gray"
+    $nc = Get-MoleColor -Name "NC"
+    Write-Host ""
+    Write-Host "${gray}Debug session log saved to:${nc} $($script:LogConfig.LogFile)"
 }
 
 function Disable-DebugMode {

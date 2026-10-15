@@ -274,7 +274,7 @@ function Start-Cleanup {
 function Main {
     # Enable debug if requested
     if ($DebugMode) {
-        $env:MOLE_DEBUG = "1"
+        Enable-DebugMode
         $DebugPreference = "Continue"
     }
 

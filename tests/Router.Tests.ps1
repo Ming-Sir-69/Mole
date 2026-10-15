@@ -16,6 +16,9 @@ BeforeAll {
         Set-Item -Path "function:script:$name" -Value (Get-Item "function:$name").ScriptBlock
     }
     function Write-MoleError { param($Message) }
+    function Get-MoleDebugHeader { param($CommandLine) "header: $CommandLine" }
+    function Start-MoleDebugSession { param($Header) $script:DebugSessionCalls += "start:$($Header -join '|')" }
+    function Complete-MoleDebugSession { $script:DebugSessionCalls += "complete" }
 
     $script:MOLE_BIN = Join-Path $TestDrive "bin"
     New-Item -ItemType Directory -Path $script:MOLE_BIN -Force | Out-Null
@@ -36,6 +39,7 @@ if ($ShowHelp) { "HELP" } elseif ($DryRun) { "DRYRUN" } elseif ($DebugMode) { "D
 Describe "mole.ps1 command router" {
     BeforeEach {
         $script:MoleExitCode = 0
+        $script:DebugSessionCalls = @()
     }
 
     It "Maps <Flag> to the command's own parameter" -ForEach @(
@@ -45,6 +49,17 @@ Describe "mole.ps1 command router" {
         @{ Flag = "--debug"; Expected = "DEBUG" }
     ) {
         Invoke-MoleCommand -CommandName "fake" -Arguments @($Flag) | Should -Be $Expected
+    }
+
+    It "Opens one debug session around a --debug command and closes it" {
+        Invoke-MoleCommand -CommandName "fake" -Arguments @("--debug") | Should -Be "DEBUG"
+        $script:DebugSessionCalls | Should -Be @("start:header: fake --debug", "complete")
+    }
+
+    It "Leaves the debug session alone without --debug" {
+        Invoke-MoleCommand -CommandName "fake" -Arguments @("--dry-run") | Should -Be "DRYRUN"
+        Invoke-MoleCommand -CommandName "fake" -Arguments @() | Should -Be "ACTED"
+        $script:DebugSessionCalls | Should -BeNullOrEmpty
     }
 
     It "Refuses an unknown option without running the command" {

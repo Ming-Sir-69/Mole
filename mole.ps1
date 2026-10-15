@@ -62,6 +62,24 @@ function Get-NativeArchitecture {
     return $env:PROCESSOR_ARCHITECTURE
 }
 
+# The facts a --debug session log opens with. No user or machine name.
+function Get-MoleDebugHeader {
+    param([string]$CommandLine)
+
+    $lines = @("Mole Debug Session, $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')", "Command: mo $CommandLine")
+    try {
+        $info = Get-MoleVersion
+        $windows = Get-WindowsVersion
+        $lines += "Mole version: $($info.Version)"
+        $lines += "Windows: $($windows.Name) $($windows.Version)"
+        $lines += "Architecture: $(Get-NativeArchitecture)"
+        $lines += "PowerShell: $($info.PowerShell) $($PSVersionTable.PSEdition)"
+        $lines += "Install: $(Get-MoleInstallMethod -RootDir $script:MOLE_ROOT)"
+    }
+    catch { $lines += "Environment: unavailable" }
+    return $lines
+}
+
 # How this copy was installed, by the folder each channel installs into.
 function Get-MoleInstallMethod {
     param([string]$RootDir)
@@ -237,11 +255,10 @@ function Invoke-MoleCommand {
     # Execute the command script with arguments using splatting
     # This properly handles switch parameters passed as strings
     $argCount = if ($null -eq $Arguments) { 0 } else { @($Arguments).Count }
+    $splatParams = @{}
+    $positionalArgs = @()
     if ($argCount -gt 0) {
         $declared = (Get-Command -Name $scriptPath -CommandType ExternalScript).Parameters
-        # Build a hashtable for splatting
-        $splatParams = @{}
-        $positionalArgs = @()
 
         foreach ($arg in $Arguments) {
             # Shell parsing already removed syntactic quotes. Literal quote
@@ -276,8 +293,15 @@ function Invoke-MoleCommand {
                 $positionalArgs += $cleanArg
             }
         }
+    }
 
-        # Execute with splatting
+    # The command script loads the log module afresh, so the session has to
+    # exist before it starts for its own debug lines to reach the file.
+    $debugSession = $splatParams.ContainsKey("DebugMode")
+    if ($debugSession) {
+        Start-MoleDebugSession -Header (Get-MoleDebugHeader -CommandLine ((@($CommandName) + @($Arguments)) -join " "))
+    }
+    try {
         if ($positionalArgs.Count -gt 0) {
             & $scriptPath @splatParams @positionalArgs
         }
@@ -285,8 +309,8 @@ function Invoke-MoleCommand {
             & $scriptPath @splatParams
         }
     }
-    else {
-        & $scriptPath
+    finally {
+        if ($debugSession) { Complete-MoleDebugSession }
     }
     if ($CommandName -in @("analyze", "status")) {
         $script:MoleExitCode = $LASTEXITCODE

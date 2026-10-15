@@ -357,6 +357,70 @@ Describe "Logging Module" {
         }
     }
 
+    Context "Debug session log" {
+        BeforeEach {
+            $script:OriginalDebugLogFile = $script:MoleDebugLogFile
+            $script:OriginalLogConfig = $script:LogConfig.Clone()
+            $script:OriginalMoleDebug = $env:MOLE_DEBUG
+            $script:MoleDebugLogFile = Join-Path $TestDrive "config\mole\mole_debug_session.log"
+        }
+
+        AfterEach {
+            $script:MoleDebugLogFile = $script:OriginalDebugLogFile
+            $script:LogConfig = $script:OriginalLogConfig
+            $env:MOLE_DEBUG = $script:OriginalMoleDebug
+        }
+
+        It "Starts a fresh log with its header and records debug and message lines" {
+            New-Item -ItemType Directory -Path (Split-Path -Parent $script:MoleDebugLogFile) -Force | Out-Null
+            Set-Content -LiteralPath $script:MoleDebugLogFile -Value "previous session"
+
+            Start-MoleDebugSession -Header @("Mole Debug Session", "Command: mo clean --debug")
+            Write-Debug "probe-debug-line"
+            Write-MoleWarning "probe-warning-line"
+            Complete-MoleDebugSession
+
+            $log = Get-Content -LiteralPath $script:MoleDebugLogFile -Raw
+            $log | Should -Not -Match "previous session"
+            $log | Should -Match "Command: mo clean --debug"
+            $log | Should -Match "\[DEBUG\] probe-debug-line"
+            $log | Should -Match "\[WARN\] probe-warning-line"
+            $env:MOLE_DEBUG | Should -Be "1"
+        }
+
+        It "Keeps working when the log cannot be written" {
+            $blocker = Join-Path $TestDrive "blocked"
+            Set-Content -LiteralPath $blocker -Value "a file, not a folder"
+            $script:MoleDebugLogFile = Join-Path $blocker "mole_debug_session.log"
+
+            { Start-MoleDebugSession -Header @("header") } | Should -Not -Throw
+            { Write-Debug "still printed" } | Should -Not -Throw
+            $script:LogConfig.LogFile | Should -BeNullOrEmpty
+        }
+
+        It "Writes a command script's own lines when the router already set MOLE_DEBUG" {
+            # Command scripts load the log module afresh in their own scope after
+            # the router set MOLE_DEBUG; reading it only in Main was too late.
+            $profileDir = Join-Path $TestDrive "profile"
+            New-Item -ItemType Directory -Path (Join-Path $profileDir ".config\mole") -Force | Out-Null
+            $logPath = (Join-Path $script:LibDir "core\log.ps1").Replace("'", "''")
+            $psCommand = "& { . '$logPath'; Write-Debug 'child-debug-line'; Write-MoleWarning 'child-warning-line' }"
+            $originalProfile = $env:USERPROFILE
+            try {
+                $env:USERPROFILE = $profileDir
+                $env:MOLE_DEBUG = "1"
+                & powershell -NoProfile -ExecutionPolicy Bypass -Command $psCommand | Out-Null
+            }
+            finally {
+                $env:USERPROFILE = $originalProfile
+            }
+
+            $log = Get-Content -LiteralPath (Join-Path $profileDir ".config\mole\mole_debug_session.log") -Raw
+            $log | Should -Match "\[DEBUG\] child-debug-line"
+            $log | Should -Match "\[WARN\] child-warning-line"
+        }
+    }
+
     Context "Section Functions" {
         It "Should start and stop sections without error" {
             { Start-Section -Title "Test Section" } | Should -Not -Throw
