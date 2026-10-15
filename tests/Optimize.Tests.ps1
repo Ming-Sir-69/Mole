@@ -214,3 +214,19 @@ Describe "System image and file checks" {
         finally { $env:TEMP = $savedTemp }
     }
 }
+
+Describe 'Review regressions: health summary' {
+    It 'Does not turn an unknown DISM result into a healthy summary' -ForEach @('failure', 'unknown') {
+        $script:IssuesFound = 0
+        $script:IssuesFixed = 0
+        $script:OptimizationsApplied = 0
+        $script:DryRun = $false
+        Mock Test-IsAdmin { $true }
+        if ($_ -eq 'failure') { Mock Repair-WindowsImage { throw 'unavailable' } }
+        else { Mock Repair-WindowsImage { [pscustomobject]@{ ImageHealthState = 'Unknown' } } }
+        Mock Show-SummaryBlock { Write-Output ($Details -join "`n") }
+        Test-SystemImage 6>$null
+        $script:IssuesFound | Should -Be 0
+        Show-OptimizeSummary | Should -Not -Match 'System health: Good'
+    }
+}

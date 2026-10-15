@@ -550,7 +550,6 @@ function Show-OptimizeSummary {
         $details += "Optimizations applied: $($script:OptimizationsApplied)"
         if ($script:IssuesFixed -gt 0) { $details += "Issues fixed: $($script:IssuesFixed)" }
         if ($script:IssuesFound -gt 0) { $details += "Issues found: $($script:IssuesFound)" }
-        else { $details += 'System health: Good' }
     }
     Show-SummaryBlock -Heading $heading -Details $details
 }
