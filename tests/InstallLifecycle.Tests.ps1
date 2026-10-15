@@ -190,7 +190,7 @@ Describe 'Copied installation ownership' {
 
 Describe 'Package manager update without Git' {
     It 'Prints the winget command before requiring Git' {
-        $root = Join-Path $TestDrive 'Microsoft\WinGet\Packages\tw93.Mole_fixture'
+        $root = Join-Path $TestDrive 'Microsoft\WinGet\Packages\tw93.MoleCLI_fixture'
         New-Item -ItemType Directory -Path (Join-Path $root 'bin') -Force | Out-Null
         Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'bin\update.ps1') -Destination (Join-Path $root 'bin\update.ps1')
         Set-Content -LiteralPath (Join-Path $root 'install.ps1') -Value '# fixture'
@@ -198,7 +198,7 @@ Describe 'Package manager update without Git' {
         try {
             $env:PATH = ''
             $output = & "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'bin\update.ps1') 2>&1
-            ($output -join "`n") | Should -Match 'winget upgrade tw93.Mole'
+            ($output -join "`n") | Should -Match 'winget upgrade tw93\.MoleCLI'
             ($output -join "`n") | Should -Not -Match 'Git is not installed'
         }
         finally { $env:PATH = $saved }

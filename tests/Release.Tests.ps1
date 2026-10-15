@@ -55,7 +55,7 @@ Describe "render-packaging.ps1" {
         $scoop.architecture.'64bit'.url | Should -Be "https://github.com/tw93/Mole/releases/download/V1.31.0-windows/mole-1.31.0-x64.zip"
         $scoop.architecture.'64bit'.hash | Should -Be $script:Hash
 
-        $installer = Get-Content (Join-Path $script:Out "winget\manifests\t\tw93\Mole\1.31.0\tw93.Mole.installer.yaml") -Raw
+        $installer = Get-Content (Join-Path $script:Out "winget\manifests\t\tw93\MoleCLI\1.31.0\tw93.MoleCLI.installer.yaml") -Raw
         $installer | Should -Match "InstallerSha256: $($script:Hash)"
         $installer | Should -Match "RelativeFilePath: mo.exe"
     }
@@ -79,7 +79,7 @@ Describe "mo update for package-manager installs" {
     }
 
     It "Names the upgrade command for <Manager>" -ForEach @(
-        @{ Manager = "winget"; Dir = "C:\Users\me\AppData\Local\Microsoft\WinGet\Packages\tw93.Mole_Microsoft.Winget.Source_8wekyb3d8bbwe"; Expected = "winget upgrade tw93.Mole" },
+        @{ Manager = "winget"; Dir = "C:\Users\me\AppData\Local\Microsoft\WinGet\Packages\tw93.MoleCLI_Microsoft.Winget.Source_8wekyb3d8bbwe"; Expected = "winget upgrade tw93.MoleCLI" },
         @{ Manager = "Scoop"; Dir = "C:\Users\me\scoop\apps\mole\1.31.0"; Expected = "scoop update mole" }
     ) {
         Get-PackageManagerUpgradeCommand -InstallDir $Dir | Should -Be $Expected

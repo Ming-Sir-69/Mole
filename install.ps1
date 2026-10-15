@@ -218,7 +218,7 @@ function Copy-MoleInstallEntry {
 function Show-Banner {
     $c = $script:Colors
     Write-Host ""
-    Write-Host "  $($c.Cyan)Mole for Windows$($c.NC)"
+    Write-Host "  $($c.Cyan)Mole CLI for Windows$($c.NC)"
     Write-Host "  $($c.Gray)Deep clean and optimize your PC. https://mole.fit/windows$($c.NC)"
     Write-Host ""
 }
@@ -682,9 +682,9 @@ function Get-MoleInstallNestedFiles {
         "lib\core\version.ps1"
         "packaging\README.md"
         "packaging\scoop\mole.json"
-        "packaging\winget\tw93.Mole.installer.yaml"
-        "packaging\winget\tw93.Mole.locale.en-US.yaml"
-        "packaging\winget\tw93.Mole.yaml"
+        "packaging\winget\tw93.MoleCLI.installer.yaml"
+        "packaging\winget\tw93.MoleCLI.locale.en-US.yaml"
+        "packaging\winget\tw93.MoleCLI.yaml"
         "scripts\build-msi.ps1"
         "scripts\build-release.ps1"
         "scripts\build.ps1"

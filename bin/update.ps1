@@ -197,8 +197,8 @@ function Get-PackageManagerUpgradeCommand {
     param([string]$InstallDir)
 
     $path = $InstallDir.TrimEnd('\') + '\'
-    if ($path -like "*\Microsoft\WinGet\Packages\tw93.Mole_*") {
-        return "winget upgrade tw93.Mole"
+    if ($path -like "*\Microsoft\WinGet\Packages\tw93.MoleCLI_*") {
+        return "winget upgrade tw93.MoleCLI"
     }
     if ($path -like "*\scoop\apps\mole\*") {
         return "scoop update mole"

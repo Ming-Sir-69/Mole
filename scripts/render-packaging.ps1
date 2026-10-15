@@ -53,9 +53,9 @@ $values = @{
 }
 
 $templates = @(
-    @{ From = "winget\tw93.Mole.yaml"; To = "winget\manifests\t\tw93\Mole\$Version\tw93.Mole.yaml" },
-    @{ From = "winget\tw93.Mole.installer.yaml"; To = "winget\manifests\t\tw93\Mole\$Version\tw93.Mole.installer.yaml" },
-    @{ From = "winget\tw93.Mole.locale.en-US.yaml"; To = "winget\manifests\t\tw93\Mole\$Version\tw93.Mole.locale.en-US.yaml" },
+    @{ From = "winget\tw93.MoleCLI.yaml"; To = "winget\manifests\t\tw93\MoleCLI\$Version\tw93.MoleCLI.yaml" },
+    @{ From = "winget\tw93.MoleCLI.installer.yaml"; To = "winget\manifests\t\tw93\MoleCLI\$Version\tw93.MoleCLI.installer.yaml" },
+    @{ From = "winget\tw93.MoleCLI.locale.en-US.yaml"; To = "winget\manifests\t\tw93\MoleCLI\$Version\tw93.MoleCLI.locale.en-US.yaml" },
     @{ From = "scoop\mole.json"; To = "scoop\mole.json" }
 )
 
