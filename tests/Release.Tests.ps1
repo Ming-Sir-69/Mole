@@ -91,6 +91,38 @@ Describe "mo update for package-manager installs" {
 }
 
 Describe "new-release-zip.ps1" {
+    It "Includes every README language linked by the packaged English README" {
+        $build = Get-Content (Join-Path $script:ScriptsDir "build-release.ps1") -Raw
+        $start = $build.IndexOf('# Copy all necessary files')
+        $end = $build.IndexOf('$zipSize =', $start)
+        $start | Should -BeGreaterThan -1
+        $end | Should -BeGreaterThan $start
+
+        # Execute the real staging and archive steps, without builds or signing.
+        $projectRoot = $script:WindowsDir
+        $scriptDir = $script:ScriptsDir
+        $releaseDir = Join-Path $TestDrive "readme-release"
+        $tempBuildDir = Join-Path $releaseDir "stage"
+        $archiveName = "readme-fixture"
+        New-Item -ItemType Directory -Path $tempBuildDir -Force | Out-Null
+        . ([scriptblock]::Create($build.Substring($start, $end - $start))) 6>$null
+
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
+        try {
+            $english = [System.IO.File]::ReadAllText((Join-Path $projectRoot "README.md"))
+            $languages = @([regex]::Matches($english, 'href="(README_[A-Z]+\.md)"') | ForEach-Object { $_.Groups[1].Value })
+            $languages.Count | Should -BeGreaterThan 0
+            foreach ($name in @("README.md") + $languages) {
+                $entry = $archive.GetEntry($name)
+                $entry | Should -Not -BeNullOrEmpty -Because "$name must ship with its language link"
+                $reader = New-Object System.IO.StreamReader($entry.Open())
+                try { $reader.ReadToEnd() | Should -BeExactly ([System.IO.File]::ReadAllText((Join-Path $projectRoot $name))) }
+                finally { $reader.Dispose() }
+            }
+        }
+        finally { $archive.Dispose() }
+    }
+
     It "Stores entry names with forward slashes, as winget's archive check requires" {
         $source = Join-Path $TestDrive "zip-source"
         New-Item -ItemType Directory -Path (Join-Path $source "bin\nested") -Force | Out-Null

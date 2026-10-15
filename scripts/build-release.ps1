@@ -229,6 +229,14 @@ $filesToInclude = @(
     @{Source = "$projectRoot\VERSION"; Dest = "$tempBuildDir\VERSION"},
     @{Source = "$projectRoot\LICENSE"; Dest = "$tempBuildDir\LICENSE"},
     @{Source = "$projectRoot\README.md"; Dest = "$tempBuildDir\README.md"},
+    @{Source = "$projectRoot\README_CN.md"; Dest = "$tempBuildDir\README_CN.md"},
+    @{Source = "$projectRoot\README_TW.md"; Dest = "$tempBuildDir\README_TW.md"},
+    @{Source = "$projectRoot\README_JA.md"; Dest = "$tempBuildDir\README_JA.md"},
+    @{Source = "$projectRoot\README_KR.md"; Dest = "$tempBuildDir\README_KR.md"},
+    @{Source = "$projectRoot\README_DE.md"; Dest = "$tempBuildDir\README_DE.md"},
+    @{Source = "$projectRoot\README_FR.md"; Dest = "$tempBuildDir\README_FR.md"},
+    @{Source = "$projectRoot\README_UA.md"; Dest = "$tempBuildDir\README_UA.md"},
+    @{Source = "$projectRoot\README_RU.md"; Dest = "$tempBuildDir\README_RU.md"},
     @{Source = "$releaseDir\launcher\mo.exe"; Dest = "$tempBuildDir\mo.exe"}
 )
 
