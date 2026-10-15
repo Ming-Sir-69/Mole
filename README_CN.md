@@ -138,9 +138,7 @@ Dry Run Mode - Preview only, no deletions
 
 Dry run complete - no changes made
 
-  Potential space: 1.32GB
-  Items found: 176
-  Categories: 15
+  Potential space: 1.32GB | Items: 176
 
   Detailed list: C:\Users\you\.config\mole\clean-list.txt
   Run without --dry-run to apply cleanup

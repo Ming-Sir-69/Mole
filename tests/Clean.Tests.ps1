@@ -420,3 +420,45 @@ Describe "Owner cache accounting" {
         $output | Should -Match 'Tool cache cleanup completed'
     }
 }
+
+Describe 'Review regressions: owner log and summary' {
+    BeforeEach {
+        Reset-CleanupStats
+        Set-DryRunMode -Enabled $false
+        Mock Get-MoleOwnerCachePath { 'C:\cache' }
+        Mock Test-SafePath { $true }
+        Mock Get-MolePathSnapshot { @{ Path = 'C:\cache' } }
+        Mock Test-MolePathSnapshot { $true }
+        Mock Get-SafeDirectoryTreeItems { @{ Success = $true; Items = @() } }
+        Mock Invoke-MoleOwnerProcess { [pscustomobject]@{ Output = '' } }
+        Mock Write-MoleOperation { }
+        Mock Write-Success { }
+        Mock Set-SectionActivity { }
+    }
+    It 'Records a successful owner command without claiming a file removal' {
+        Invoke-MoleOwnerCacheCleanup -Name npm -Query @('config','get','cache') -Arguments @('cache','clean','--force') -Description 'npm cache'
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq 'OWNER' -and $Path -eq 'C:\cache' -and $Detail -eq 'npm cache clean --force' }
+    }
+    It 'Records a failed owner command as incomplete' {
+        Mock Invoke-MoleOwnerProcess { $null }
+        Invoke-MoleOwnerCacheCleanup -Name npm -Query @('path') -Arguments @('cache','clean','--force') -Description 'npm cache'
+        Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq 'FAILED' -and $Detail -eq 'npm cache clean --force: incomplete' }
+    }
+    It 'Does not record an owner preview' {
+        Set-DryRunMode -Enabled $true
+        Mock Add-DryRunListEntries { }
+        Invoke-MoleOwnerCacheCleanup -Name npm -Query @('path') -Arguments @('cache','clean','--force') -Description 'npm cache'
+        Should -Invoke Write-MoleOperation -Times 0 -Exactly
+    }
+    It 'Uses one item count and no protection tutorial in a dry-run summary' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:WindowsDir 'bin\clean.ps1'), [ref]$null, [ref]$null)
+        $definition = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-CleanupSummary' }, $true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        Mock Get-FreeSpace { '10 GB' }
+        Mock Show-SummaryBlock { Write-Output ($Details -join "`n") }
+        $script:ExportListFile = 'fixture-list.txt'
+        $output = Show-CleanupSummary -Stats @{ TotalSizeKB = 4; FilesCleaned = 2; TotalItems = 1; OwnerCleanups = 0 } -IsDryRun $true | Out-String
+        $output | Should -Match 'Potential space:.*Items: 2'
+        $output | Should -Not -Match 'Categories:|--whitelist'
+    }
+}

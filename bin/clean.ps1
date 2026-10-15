@@ -133,7 +133,7 @@ function Show-CleanupSummary {
     if ($Stats.TotalSizeKB -gt 0) {
         $size = Format-ByteSize -Bytes ($Stats.TotalSizeKB * 1024)
         if ($IsDryRun) {
-            $details += "Potential space: ${green}${size}${nc} | Items: $($Stats.FilesCleaned) | Categories: $($Stats.TotalItems)"
+            $details += "Potential space: ${green}${size}${nc} | Items: $($Stats.FilesCleaned)"
         }
         else {
             $details += "Tracked cleanup: ${green}${size}${nc} | Items cleaned: $($Stats.FilesCleaned)"
@@ -148,7 +148,6 @@ function Show-CleanupSummary {
     $details += "Free space: $(Get-FreeSpace)"
     if ($IsDryRun -and ($Stats.TotalSizeKB -gt 0 -or ($Stats.ContainsKey('OwnerCleanups') -and $Stats.OwnerCleanups -gt 0))) {
         $details += "Detailed file list: $($script:ExportListFile)"
-        $details += 'Use mo clean --whitelist to add protection rules'
     }
     Show-SummaryBlock -Heading $heading -Details $details
 }

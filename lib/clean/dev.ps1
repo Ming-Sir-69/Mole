@@ -123,8 +123,10 @@ function Invoke-MoleOwnerCacheCleanup {
     $beforeFiles = @($tree.Items | Where-Object { -not $_.PSIsContainer })
     $beforeBytes = 0L
     foreach ($file in $beforeFiles) { $beforeBytes += $file.Length }
+    $commandDetail = (@($Name) + $Arguments) -join ' '
     $result = Invoke-MoleOwnerProcess -Name $Name -Arguments $Arguments -TimeoutSeconds 120
     if ($null -ne $result) {
+        Write-MoleOperation -Action "OWNER" -Path $path -Detail $commandDetail
         $script:OwnerCleanups++
         # Count only a complete before/after measurement of the same root.
         # Missing or replaced roots are unmeasured, never assumed empty.
@@ -143,7 +145,10 @@ function Invoke-MoleOwnerCacheCleanup {
         Write-Success $Description
         Set-SectionActivity
     }
-    else { Write-Debug "$Name cache cleanup did not complete" }
+    else {
+        Write-MoleOperation -Action "FAILED" -Path $path -Detail "${commandDetail}: incomplete"
+        Write-Debug "$Name cache cleanup did not complete"
+    }
 }
 
 function Clear-NpmCache {
