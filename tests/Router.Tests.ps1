@@ -187,3 +187,34 @@ Describe "mo --version install line" {
         Get-MoleInstallDescription -RootDir $script:Root | Should -BeExactly "Portable"
     }
 }
+
+Describe "Debug through installed launcher call shapes" {
+    It "Creates a debug session through <_>" -ForEach @("File", "Command") {
+        $profile = Join-Path $TestDrive ("debug-" + $_)
+        New-Item -ItemType Directory -Path $profile -Force | Out-Null
+        $savedProfile = $env:USERPROFILE
+        $savedDebug = $env:MOLE_DEBUG
+        $mole = Join-Path (Split-Path -Parent $PSScriptRoot) "mole.ps1"
+        try {
+            $env:USERPROFILE = $profile
+            $env:MOLE_DEBUG = $null
+            if ($_ -eq "File") {
+                $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mole clean --help --debug 2>&1 | Out-String
+            }
+            else {
+                $command = "& '" + $mole.Replace("'", "''") + "' 'clean' '--help' '--debug'; exit `$LASTEXITCODE"
+                $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command 2>&1 | Out-String
+            }
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -Match 'Debug logging enabled'
+            $output | Should -Match 'Debug session log saved'
+            $log = Join-Path $profile ".config\mole\mole_debug_session.log"
+            Test-Path -LiteralPath $log | Should -BeTrue
+            [System.IO.File]::ReadAllText($log) | Should -Match 'Command: mo clean .*--debug'
+        }
+        finally {
+            $env:USERPROFILE = $savedProfile
+            $env:MOLE_DEBUG = $savedDebug
+        }
+    }
+}

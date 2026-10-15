@@ -20,6 +20,14 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+# The installed .cmd launcher uses -File, which binds --debug as PowerShell's
+# common parameter instead of leaving it in CommandArgs for the child command.
+if ($PSBoundParameters.ContainsKey('Debug') -and $PSBoundParameters['Debug']) {
+    if ($null -eq $CommandArgs) { $CommandArgs = @('--debug') }
+    else { $CommandArgs += '--debug' }
+    $DebugPreference = 'SilentlyContinue'
+}
+
 # Get script directory
 $script:MOLE_ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script:MOLE_BIN = Join-Path $script:MOLE_ROOT "bin"

@@ -89,6 +89,8 @@ On macOS, `GOOS=windows go build ./cmd/...` and `gofmt -l cmd` check the Go side
 - Go: the toolchain is pinned once, by `toolchain` in `go.mod`, and every workflow reads it through `go-version-file`.
 - Analyze registers scan identity before asynchronous dispatch and accepts only the current request, including when two requests use the same path. A deletion in progress ignores further action keys while retaining quit. Locked by `cmd/analyze/lifecycle_test.go`. Its Windows recycle guard also checks protected descendants and path identities immediately before the sink; incomplete walks keep the selection. A directory name alone is not proof it is cleanable; retain only explicit cache-tag evidence for that hint.
 
+The installed `.cmd` launcher keeps PowerShell's `-File` invocation. That call binds `--debug` to the router's common `Debug` parameter; translate it back into the existing command arguments before loading modules, and suppress PowerShell's own debug stream. The native launcher uses quoted argument literals with `-Command`. Verify both call shapes create a fresh session log; `tests/Router.Tests.ps1` locks them.
+
 Parsed command arguments are data: do not strip literal quote characters a second time. Propagate native TUI exit codes and reset stale native status for help-only calls. Status proxy rendering never falls back to raw environment or registry values, which may contain credentials.
 
 ## CI
