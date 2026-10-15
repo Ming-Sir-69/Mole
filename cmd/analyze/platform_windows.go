@@ -230,24 +230,49 @@ type shFileOpStructW struct {
 	lpszProgressTitle     *uint16
 }
 
-var procSHFileOperationW = windows.NewLazySystemDLL("shell32.dll").NewProc("SHFileOperationW")
+var (
+	shell32                = windows.NewLazySystemDLL("shell32.dll")
+	procSHFileOperationW   = shell32.NewProc("SHFileOperationW")
+	procSHQueryRecycleBinW = shell32.NewProc("SHQueryRecycleBinW")
+)
+
+// shQueryRBInfo mirrors SHQUERYRBINFO with its 64-bit natural alignment.
+type shQueryRBInfo struct {
+	cbSize      uint32
+	i64Size     int64
+	i64NumItems int64
+}
+
+// recycleBinItemCount reads how many items the Recycle Bin holds for one
+// volume root, so a delete can tell whether it went there.
+func recycleBinItemCount(volume *uint16) (int64, bool) {
+	info := shQueryRBInfo{cbSize: uint32(unsafe.Sizeof(shQueryRBInfo{}))}
+	ret, _, _ := procSHQueryRecycleBinW.Call(uintptr(unsafe.Pointer(volume)), uintptr(unsafe.Pointer(&info)))
+	if ret != 0 {
+		return 0, false
+	}
+	return info.i64NumItems, true
+}
 
 // moveToRecycleBinNative sends one absolute path to the Recycle Bin through
 // the shell. Only fixed local drives have a Recycle Bin; elsewhere the shell
 // would delete permanently, so those paths are refused. FOF_WANTNUKEWARNING
 // makes the shell ask before it ever deletes instead of recycling, such as for
-// an item larger than the Recycle Bin.
-func moveToRecycleBinNative(absPath string) error {
+// an item larger than the Recycle Bin. If the user accepts that prompt the
+// item is gone without reaching the bin; comparing the bin's item count before
+// and after is how the outcome tells that apart.
+func moveToRecycleBinNative(absPath string) (recycleOutcome, error) {
 	if unsafe.Sizeof(uintptr(0)) != 8 {
-		return errors.New("moving to the Recycle Bin is supported only on 64-bit Windows")
+		return recycledVerified, errors.New("moving to the Recycle Bin is supported only on 64-bit Windows")
 	}
-	if err := requireRecycleBinVolume(absPath); err != nil {
-		return err
+	volume, err := requireRecycleBinVolume(absPath)
+	if err != nil {
+		return recycledVerified, err
 	}
 
 	from, err := windows.UTF16FromString(absPath)
 	if err != nil {
-		return err
+		return recycledVerified, err
 	}
 	from = append(from, 0) // pFrom is a double-null-terminated list.
 
@@ -256,6 +281,7 @@ func moveToRecycleBinNative(absPath string) error {
 		pFrom:  &from[0],
 		fFlags: fofAllowUndo | fofNoConfirmation | fofSilent | fofNoErrorUI | fofWantNukeWarning,
 	}
+	before, beforeKnown := recycleBinItemCount(&volume[0])
 	// Recycling a large folder can take a while; reporting a timeout while the
 	// shell keeps moving it would misstate the outcome, so this waits.
 	err = withCOM(0, func() error {
@@ -270,25 +296,35 @@ func moveToRecycleBinNative(absPath string) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		return recycledVerified, err
 	}
 	if _, statErr := os.Lstat(absPath); statErr == nil {
-		return fmt.Errorf("failed to move to Recycle Bin: %s is still in place", absPath)
+		return recycledVerified, fmt.Errorf("failed to move to Recycle Bin: %s is still in place", absPath)
 	}
-	return nil
+	after, afterKnown := recycleBinItemCount(&volume[0])
+	switch {
+	case !beforeKnown || !afterKnown:
+		return recycledUnverified, nil
+	case after > before:
+		return recycledVerified, nil
+	default:
+		return deletedPermanently, nil
+	}
 }
 
-func requireRecycleBinVolume(absPath string) error {
+// requireRecycleBinVolume returns the volume root of absPath, which must be a
+// fixed local drive: only those have a Recycle Bin.
+func requireRecycleBinVolume(absPath string) ([]uint16, error) {
 	pathPtr, err := windows.UTF16PtrFromString(absPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var volume [windows.MAX_PATH + 1]uint16
+	volume := make([]uint16, windows.MAX_PATH+1)
 	if err := windows.GetVolumePathName(pathPtr, &volume[0], uint32(len(volume))); err != nil {
-		return fmt.Errorf("cannot resolve the volume of %s: %w", absPath, err)
+		return nil, fmt.Errorf("cannot resolve the volume of %s: %w", absPath, err)
 	}
 	if windows.GetDriveType(&volume[0]) != windows.DRIVE_FIXED {
-		return fmt.Errorf("the Recycle Bin is not available for %s", absPath)
+		return nil, fmt.Errorf("the Recycle Bin is not available for %s", absPath)
 	}
-	return nil
+	return volume, nil
 }

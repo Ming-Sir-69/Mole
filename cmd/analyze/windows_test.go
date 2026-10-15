@@ -104,9 +104,9 @@ func withRecorder(t *testing.T) *[]string {
 	t.Helper()
 	var calls []string
 	previous := recycleItem
-	recycleItem = func(path string) error {
+	recycleItem = func(path string) (recycleOutcome, error) {
 		calls = append(calls, path)
-		return nil
+		return recycledVerified, nil
 	}
 	t.Cleanup(func() { recycleItem = previous })
 	return &calls
@@ -122,7 +122,7 @@ func TestMoveToRecycleBinRefusesProtectedAndTraversal(t *testing.T) {
 		`C:\Users\me\..\..\Windows`,
 		`relative\path`,
 	} {
-		if err := moveToRecycleBin(path); err == nil {
+		if _, err := moveToRecycleBin(path); err == nil {
 			t.Errorf("moveToRecycleBin(%q) succeeded, expected a refusal", path)
 		}
 	}
@@ -138,7 +138,7 @@ func TestMoveToRecycleBinPassesAbsolutePath(t *testing.T) {
 	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := recyclePathWithProgress(target, nil); err != nil {
+	if _, err := recyclePathWithProgress(target, "1 B", nil); err != nil {
 		t.Fatalf("recyclePathWithProgress: %v", err)
 	}
 	if len(*calls) != 1 || !strings.EqualFold((*calls)[0], target) {
@@ -157,7 +157,7 @@ func TestMoveToRecycleBinRefusesProtectedTreeReachedThroughJunction(t *testing.T
 	link := filepath.Join(t.TempDir(), "pd")
 	makeJunction(t, link, programData)
 
-	if err := moveToRecycleBin(filepath.Join(link, "Microsoft")); err == nil {
+	if _, err := moveToRecycleBin(filepath.Join(link, "Microsoft")); err == nil {
 		t.Fatal("expected a refusal for a protected folder reached through a junction")
 	}
 	if len(*calls) != 0 {
@@ -285,8 +285,13 @@ func TestRecycleBinIntegration(t *testing.T) {
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := moveToRecycleBin(file); err != nil {
+	outcome, err := moveToRecycleBin(file)
+	if err != nil {
 		t.Fatalf("recycle file: %v", err)
+	}
+	// A one-byte file fits any Recycle Bin, so the bin has to have grown.
+	if outcome == deletedPermanently {
+		t.Fatalf("a recycled file was reported as permanently deleted")
 	}
 	if _, err := os.Lstat(file); !os.IsNotExist(err) {
 		t.Fatalf("file still present after recycling: %v", err)
@@ -303,7 +308,7 @@ func TestRecycleBinIntegration(t *testing.T) {
 	}
 	link := filepath.Join(fixture, "junction-link")
 	makeJunction(t, link, target)
-	if err := moveToRecycleBin(link); err != nil {
+	if _, err := moveToRecycleBin(link); err != nil {
 		t.Fatalf("recycle junction: %v", err)
 	}
 	if _, err := os.Lstat(link); !os.IsNotExist(err) {
@@ -319,7 +324,7 @@ func TestRecycleBinIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	makeJunction(t, filepath.Join(parent, "inner-link"), target)
-	if err := moveToRecycleBin(parent); err != nil {
+	if _, err := moveToRecycleBin(parent); err != nil {
 		t.Fatalf("recycle folder with junction: %v", err)
 	}
 	if data, err := os.ReadFile(kept); err != nil || string(data) != "keep" {
@@ -334,7 +339,7 @@ func TestRecycleRefusesProtectedDescendant(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(local, "Docker", "wsl"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := moveToRecycleBin(local); err == nil {
+	if _, err := moveToRecycleBin(local); err == nil {
 		t.Fatal("recycled parent of protected Docker data")
 	}
 	if len(*calls) != 0 {
@@ -344,7 +349,7 @@ func TestRecycleRefusesProtectedDescendant(t *testing.T) {
 	if err := os.Mkdir(sibling, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := moveToRecycleBin(sibling); err != nil {
+	if _, err := moveToRecycleBin(sibling); err != nil {
 		t.Fatal(err)
 	}
 	if len(*calls) != 1 {

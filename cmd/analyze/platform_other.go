@@ -35,7 +35,9 @@ func safeOpen(string, bool) error { return errUnsupported }
 
 func safePreview(string) error { return errUnsupported }
 
-func moveToRecycleBinNative(string) error { return errUnsupported }
+func moveToRecycleBinNative(string) (recycleOutcome, error) {
+	return recycledVerified, errUnsupported
+}
 
 func isProtectedPath(string) bool { return true }
 

@@ -626,6 +626,8 @@ function Get-MoleInstallNestedFiles {
         "cmd\analyze\main_other.go"
         "cmd\analyze\main_windows.go"
         "cmd\analyze\model.go"
+        "cmd\analyze\oplog.go"
+        "cmd\analyze\oplog_test.go"
         "cmd\analyze\overview.go"
         "cmd\analyze\platform_other.go"
         "cmd\analyze\platform_windows.go"

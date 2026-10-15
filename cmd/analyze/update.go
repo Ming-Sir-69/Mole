@@ -514,15 +514,16 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 
+			sizes := m.deleteSizeLabels(pathsToDelete)
 			if len(pathsToDelete) == 1 {
 				targetPath := pathsToDelete[0]
 				m.status = fmt.Sprintf("Deleting %s...", filepath.Base(targetPath))
-				cmd := tea.Batch(deletePathCmd(targetPath, m.deleteCount), m.startTick())
+				cmd := tea.Batch(deletePathCmd(targetPath, sizes[targetPath], m.deleteCount), m.startTick())
 				return m, cmd
 			}
 
 			m.status = fmt.Sprintf("Deleting %d items...", len(pathsToDelete))
-			cmd := tea.Batch(deleteMultiplePathsCmd(pathsToDelete, m.deleteCount), m.startTick())
+			cmd := tea.Batch(deleteMultiplePathsCmd(pathsToDelete, sizes, m.deleteCount), m.startTick())
 			return m, cmd
 		case "esc", "q":
 			m.status = "Cancelled"
@@ -1220,4 +1221,25 @@ func (m *model) cancelOverviewScans(removedPaths []string) {
 			delete(m.overviewScanningSet, path)
 		}
 	}
+}
+
+// deleteSizeLabels gives each path about to be deleted the size the view
+// showed for it, so its operations.log row says how much went.
+func (m model) deleteSizeLabels(paths []string) map[string]string {
+	sizes := make(map[string]string, len(paths))
+	wanted := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		wanted[path] = true
+	}
+	for _, entry := range m.entries {
+		if wanted[entry.Path] {
+			sizes[entry.Path] = measuredSizeLabel(entry.Size, entry.State)
+		}
+	}
+	for _, file := range m.largeFiles {
+		if wanted[file.Path] {
+			sizes[file.Path] = humanizeBytes(file.Size)
+		}
+	}
+	return sizes
 }

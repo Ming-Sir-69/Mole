@@ -12,13 +12,14 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// recycleItem moves one absolute path to the Recycle Bin. It is a variable so
-// tests can observe deletions without touching the real Recycle Bin.
+// recycleItem moves one absolute path to the Recycle Bin and says what the
+// shell did with it. It is a variable so tests can observe deletions without
+// touching the real Recycle Bin.
 var recycleItem = moveToRecycleBinNative
 
-func deletePathCmd(path string, counter *int64) tea.Cmd {
+func deletePathCmd(path, size string, counter *int64) tea.Cmd {
 	return func() tea.Msg {
-		count, err := recyclePathWithProgress(path, counter)
+		count, err := recyclePathWithProgress(path, size, counter)
 		return deleteProgressMsg{
 			done:  true,
 			err:   err,
@@ -29,7 +30,8 @@ func deletePathCmd(path string, counter *int64) tea.Cmd {
 }
 
 // deleteMultiplePathsCmd moves paths to the Recycle Bin and aggregates results.
-func deleteMultiplePathsCmd(paths []string, counter *int64) tea.Cmd {
+// sizes holds the size label shown for each path, for the operation log.
+func deleteMultiplePathsCmd(paths []string, sizes map[string]string, counter *int64) tea.Cmd {
 	return func() tea.Msg {
 		var totalCount int64
 		var errors []string
@@ -42,7 +44,7 @@ func deleteMultiplePathsCmd(paths []string, counter *int64) tea.Cmd {
 		})
 
 		for _, path := range pathsToDelete {
-			count, err := recyclePathWithProgress(path, counter)
+			count, err := recyclePathWithProgress(path, sizes[path], counter)
 			totalCount += count
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -82,13 +84,18 @@ func (e *multiDeleteError) Error() string {
 	return strings.Join(e.errors[:min(3, len(e.errors))], "; ")
 }
 
-// recyclePathWithProgress moves one selected path to the Recycle Bin as a unit
-// and reports completion.
-func recyclePathWithProgress(root string, counter *int64) (int64, error) {
+// recyclePathWithProgress moves one selected path to the Recycle Bin as a unit,
+// records the outcome in operations.log and reports completion.
+func recyclePathWithProgress(root, size string, counter *int64) (int64, error) {
 	if _, err := os.Lstat(root); err != nil {
+		if !os.IsNotExist(err) {
+			logDeleteResult(root, size, recycledVerified, err)
+		}
 		return 0, err
 	}
-	if err := moveToRecycleBin(root); err != nil {
+	outcome, err := moveToRecycleBin(root)
+	logDeleteResult(root, size, outcome, err)
+	if err != nil {
 		return 0, err
 	}
 	if counter != nil {
@@ -97,26 +104,27 @@ func recyclePathWithProgress(root string, counter *int64) (int64, error) {
 	return 1, nil
 }
 
-// moveToRecycleBin validates path and moves it to the Recycle Bin. It never
-// deletes permanently.
-func moveToRecycleBin(path string) error {
+// moveToRecycleBin validates path and moves it to the Recycle Bin. It asks
+// for no permanent deletion, but the shell may still delete an item too large
+// for the Recycle Bin after its own prompt; the outcome says when it did.
+func moveToRecycleBin(path string) (recycleOutcome, error) {
 	// Validate raw input before Abs resolves ".." components away.
 	if err := validateDeleteTarget(path); err != nil {
-		return err
+		return recycledVerified, err
 	}
 	absPath, err := filepath.Abs(path)
 	if err != nil {
-		return fmt.Errorf("failed to resolve path: %w", err)
+		return recycledVerified, fmt.Errorf("failed to resolve path: %w", err)
 	}
 	if err := validateDeleteTarget(absPath); err != nil {
-		return err
+		return recycledVerified, err
 	}
 	guard, err := prepareRecycleTarget(absPath)
 	if err != nil {
-		return err
+		return recycledVerified, err
 	}
 	if err := guard(); err != nil {
-		return err
+		return recycledVerified, err
 	}
 	return recycleItem(absPath)
 }
