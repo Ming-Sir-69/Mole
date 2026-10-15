@@ -338,8 +338,9 @@ function Get-SafeDirectoryTreeItems {
 function Format-MoleTreeRemovalDetail {
     param([hashtable]$Report)
 
-    $detail = "incomplete: removed $($Report.Removed) of $($Report.Total) entries"
-    if ($Report.Reason) { $detail += "; $($Report.Reason)" }
+    # Indexed: under StrictMode a missing key read as a property throws.
+    $detail = "incomplete: removed $([int]$Report['Removed']) of $([int]$Report['Total']) entries"
+    if ($Report['Reason']) { $detail += "; $($Report['Reason'])" }
     return $detail
 }
 
@@ -371,7 +372,7 @@ function Remove-SafeDirectoryTree {
 
     if (-not $tree.Success -or -not (Test-SafePath $Path) -or
         -not (Test-MolePathSnapshot $tree.RootSnapshot)) {
-        $Report.Reason = if ($tree.Contains('Reason') -and $tree.Reason) { "refused: $($tree.Reason)" } else { "refused: the folder changed or is protected" }
+        $Report.Reason = if ($tree['Reason']) { "refused: $($tree['Reason'])" } else { "refused: the folder changed or is protected" }
         return $false
     }
 
@@ -551,7 +552,7 @@ function Remove-SafeItem {
         $validatedTree = Get-SafeDirectoryTreeItems -Path $Path
         if (-not $validatedTree.Success) {
             if (-not $script:MoleDryRunMode) {
-                Write-MoleOperation -Action "FAILED" -Path $Path -Detail "refused: $($validatedTree.Reason)"
+                Write-MoleOperation -Action "FAILED" -Path $Path -Detail "refused: $($validatedTree['Reason'])"
             }
             return $false
         }
@@ -658,7 +659,7 @@ function Remove-SafeItems {
             if (-not $validatedTree.Success) {
                 $failedCount++
                 if (-not $script:MoleDryRunMode) {
-                    Write-MoleOperation -Action "FAILED" -Path $path -Detail "refused: $($validatedTree.Reason)"
+                    Write-MoleOperation -Action "FAILED" -Path $path -Detail "refused: $($validatedTree['Reason'])"
                 }
                 continue
             }

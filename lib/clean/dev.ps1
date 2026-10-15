@@ -156,7 +156,8 @@ function Invoke-MoleOwnerCacheCleanup {
         Set-SectionActivity
     }
     else {
-        $why = if ($ownerOutcome.Reason) { "; $($ownerOutcome.Reason)" } else { "" }
+        # Indexed: under StrictMode a missing key read as a property throws.
+        $why = if ($ownerOutcome['Reason']) { "; $($ownerOutcome['Reason'])" } else { "" }
         Write-MoleOperation -Action "FAILED" -Path $path -Detail "${commandDetail}: incomplete$why"
         Write-Debug "$Name cache cleanup did not complete"
     }

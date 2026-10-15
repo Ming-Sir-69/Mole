@@ -298,12 +298,12 @@ Describe "File Operations Module" {
             $held = [System.IO.File]::Open($script:MoleOperationsLogFile, 'OpenOrCreate', 'ReadWrite', 'None')
             try {
                 Mock Start-Sleep { }
-                $DebugPreference = 'Continue'
-                $debug = Write-MoleOperation -Action "REMOVED" -Path "C:\held\file.txt" 5>&1 | Out-String
+                Mock Write-Debug { }
+                Write-MoleOperation -Action "REMOVED" -Path "C:\held\file.txt"
                 Should -Invoke Start-Sleep -Times 4 -Exactly
             }
             finally { $held.Dispose() }
-            $debug | Should -Match "operations\.log not written"
+            Should -Invoke Write-Debug -Times 1 -Exactly -ParameterFilter { $Message -like "operations.log not written: *" }
         }
 
         It "Records why a folder was refused before anything was removed" {
@@ -322,14 +322,13 @@ Describe "File Operations Module" {
             $dir = Join-Path $script:TestDir ("partial-" + [guid]::NewGuid().ToString("N"))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             foreach ($name in @("a.txt", "b.txt", "locked.txt")) { Set-Content -LiteralPath (Join-Path $dir $name) -Value "x" }
-            $locked = Join-Path $dir "locked.txt"
-            $script:LockedPath = $locked
-            Mock Remove-TreeEntry { if ($Path -eq $script:LockedPath) { throw "in-use-canary" } else { Remove-Item -LiteralPath $Path -Force } }
+            # Match by leaf: %TEMP% can be an 8.3 short path while the tree walk returns long names.
+            Mock Remove-TreeEntry { if ((Split-Path -Leaf $Path) -eq "locked.txt") { throw "in-use-canary" } else { Remove-Item -LiteralPath $Path -Force } }
 
             Remove-SafeItem -Path $dir -Recurse | Should -Be $false
 
             $text = Get-Content -LiteralPath $script:MoleOperationsLogFile -Raw
-            $text | Should -Match ("FAILED " + [regex]::Escape($dir) + " \(incomplete: removed \d of 3 entries; stopped at " + [regex]::Escape($locked) + ": in-use-canary\)")
+            $text | Should -Match ("FAILED " + [regex]::Escape($dir) + " \(incomplete: removed \d of 3 entries; stopped at [^()]*\\locked\.txt: in-use-canary\)")
         }
 
         It "Moves a log over its size limit aside before the next session" {
