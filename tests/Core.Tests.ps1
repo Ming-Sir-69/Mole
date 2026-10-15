@@ -398,6 +398,14 @@ Describe "Logging Module" {
             $script:LogConfig.LogFile | Should -BeNullOrEmpty
         }
 
+        It "Loads when USERPROFILE is empty" {
+            # Every command loads this module; a throwing path there stops them all.
+            $logPath = (Join-Path $script:LibDir "core\log.ps1").Replace("'", "''")
+            $psCommand = "& { `$env:USERPROFILE = `$null; . '$logPath'; 'loaded' }"
+            $result = & (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -Command $psCommand 2>&1 | Out-String
+            $result | Should -Match "loaded"
+        }
+
         It "Writes a command script's own lines when the router already set MOLE_DEBUG" {
             # Command scripts load the log module afresh in their own scope after
             # the router set MOLE_DEBUG; reading it only in Main was too late.

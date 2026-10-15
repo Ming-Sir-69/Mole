@@ -19,7 +19,7 @@ Initialize-MoleVisualDefaults
 
 # --debug keeps one session log a reporter can send. It sits with the CLI's
 # own config; %LOCALAPPDATA%\Mole belongs to the Mole for Windows app.
-$script:MoleDebugLogFile = Join-Path $env:USERPROFILE ".config\mole\mole_debug_session.log"
+$script:MoleDebugLogFile = "$env:USERPROFILE\.config\mole\mole_debug_session.log"
 
 # Each command script loads this module afresh after the router has set
 # MOLE_DEBUG, so the switch has to be read here, at load time.
