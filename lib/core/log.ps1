@@ -306,6 +306,34 @@ namespace Mole {
                 WriteConsoleW(GetStdHandle(-11), value, (uint)value.Length, out written, IntPtr.Zero)) return;
             Console.Write(value); // Redirected handles and explicit Console.SetOut writers.
         }
+        // Same wide ranges as Get-TerminalTextWidth: CJK takes two cells, so
+        // cutting by UTF-16 length lets a long label wrap and scroll every frame.
+        static bool IsWide(int p) {
+            return (p >= 0x1100 && p <= 0x115f) || (p >= 0x2329 && p <= 0x232a) ||
+                (p >= 0x2e80 && p <= 0xa4cf && p != 0x303f) || (p >= 0xac00 && p <= 0xd7a3) ||
+                (p >= 0xf900 && p <= 0xfaff) || (p >= 0xfe10 && p <= 0xfe19) ||
+                (p >= 0xfe30 && p <= 0xfe6f) || (p >= 0xff00 && p <= 0xff60) ||
+                (p >= 0xffe0 && p <= 0xffe6) || (p >= 0x1f300 && p <= 0x1faff) ||
+                (p >= 0x20000 && p <= 0x3fffd);
+        }
+        public static string Fit(string value, int cells) {
+            var builder = new System.Text.StringBuilder();
+            int used = 0;
+            var elements = System.Globalization.StringInfo.GetTextElementEnumerator(value);
+            while (elements.MoveNext()) {
+                string element = elements.GetTextElement();
+                var category = System.Globalization.CharUnicodeInfo.GetUnicodeCategory(element, 0);
+                int width = category == System.Globalization.UnicodeCategory.NonSpacingMark ||
+                    category == System.Globalization.UnicodeCategory.EnclosingMark ||
+                    category == System.Globalization.UnicodeCategory.Format ||
+                    category == System.Globalization.UnicodeCategory.Control ? 0 :
+                    IsWide(element.Length > 1 && char.IsSurrogatePair(element[0], element[1]) ? char.ConvertToUtf32(element[0], element[1]) : element[0]) ? 2 : 1;
+                if (used + width > cells) break;
+                builder.Append(element);
+                used += width;
+            }
+            return builder.ToString();
+        }
         static readonly char[] Frames = { '\u2816', '\u2832', '\u2834', '\u2826' };
         static Timer timer;
         static string text;
@@ -325,8 +353,7 @@ namespace Mole {
                 try {
                     int columns = 80;
                     try { columns = Console.WindowWidth; } catch (System.IO.IOException) { }
-                    int width = Math.Max(1, columns - 5);
-                    string label = text.Length > width ? text.Substring(0, width) : text;
+                    string label = Fit(text, Math.Max(1, columns - 5));
                     Write("\r\x1b[2K  \x1b[34m" + Frames[frame++ % Frames.Length] + "\x1b[0m " + label);
                     drawn = true;
                 } catch { /* Losing a terminal must not interrupt maintenance. */ }

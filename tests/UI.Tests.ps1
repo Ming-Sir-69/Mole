@@ -52,6 +52,16 @@ Describe 'Terminal presentation' {
 }
 
 Describe 'Background loading lifecycle' {
+    It 'fits loading labels to terminal cells, not UTF-16 length' {
+        Initialize-MoleSpinner
+        $cjk = [string]([char]0x4E2D) + [char]0x6587
+        [Mole.TerminalSpinner]::Fit("$cjk" + 'abc', 5) | Should -BeExactly ("$cjk" + 'a')
+        [Mole.TerminalSpinner]::Fit("$cjk", 3) | Should -BeExactly ([string]([char]0x4E2D))
+        $emoji = [char]::ConvertFromUtf32(0x1F600)
+        [Mole.TerminalSpinner]::Fit("a$emoji" + 'b', 2) | Should -BeExactly 'a'
+        [Mole.TerminalSpinner]::Fit('plain', 80) | Should -BeExactly 'plain'
+    }
+
     It 'writes Unicode frames directly to a console buffer regardless of its legacy code page' {
         Initialize-MoleSpinner
         if (-not ('Mole.SpinnerConsoleFixture' -as [type])) {
