@@ -499,3 +499,27 @@ func TestDeleteProgressPartialFailureRemovesSucceededPathsAndRefreshes(t *testin
 		t.Fatal("expected partial success to trigger a rescan")
 	}
 }
+
+func TestAnalyzeRowsFitNarrowTerminal(t *testing.T) {
+	for _, width := range []int{50, 60, 79, 80, 81, 84, 85, 120} {
+		for _, height := range []int{20, 40} {
+			for _, mode := range []string{"directory", "overview", "large"} {
+				m := model{path: "test", width: width, height: height, totalSize: 1024, entries: []dirEntry{{Name: "demo", Path: "test/demo", Size: 1024}}}
+				if mode == "overview" {
+					m.path = overviewPath
+				}
+				if mode == "large" {
+					m.showLargeFiles = true
+					m.largeFiles = []fileEntry{{Path: "test/demo", Size: 1024}}
+				}
+				row := stripANSI(rowContaining(m.View(), "demo"))
+				if row == "" {
+					t.Fatal("missing positive row")
+				}
+				if got := displayWidth(row); got > width {
+					t.Errorf("%s %dx%d row width %d: %q", mode, width, height, got, row)
+				}
+			}
+		}
+	}
+}

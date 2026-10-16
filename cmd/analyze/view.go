@@ -183,7 +183,7 @@ func (m model) View() string {
 					numColor = colorCyan
 				}
 				size := humanizeBytes(file.Size)
-				bar := coloredProgressBar(file.Size, maxLargeSize, 0)
+				bar := coloredProgressBar(file.Size, maxLargeSize, 0, calculateBarWidth(m.width))
 				fmt.Fprintf(&b, "%s%s %s%2d.%s %s  |  📄 %s%s%s  %s%10s%s\n",
 					entryPrefix, selectIcon, numColor, idx+1, colorReset, bar, nameColor, paddedPath, colorReset, sizeColor, size, colorReset)
 			}
@@ -210,6 +210,9 @@ func (m model) View() string {
 				totalSize := m.totalSize
 				// Overview labels are short; fixed width keeps layout stable.
 				nameWidth := 22
+				if m.width > 0 {
+					nameWidth = min(nameWidth, max(1, m.width-30-calculateBarWidth(m.width)))
+				}
 				displayNum := 0
 				for idx, entry := range m.entries {
 					sizeVal := entry.Size
@@ -226,7 +229,7 @@ func (m model) View() string {
 						percent = 0
 					}
 					percentStr := formatPercent(percent, totalSize > 0 && sizeVal >= 0 && entry.State == scanComplete && m.scanState == scanComplete)
-					bar := coloredProgressBar(barValue, maxSize, percent)
+					bar := coloredProgressBar(barValue, maxSize, percent, calculateBarWidth(m.width))
 					// Pending rows reuse the list view's scanning idiom: the
 					// animated spinner keeps the row visibly alive, and the
 					// string is exactly 10 display columns, flush with the
@@ -261,6 +264,9 @@ func (m model) View() string {
 					hintLabel := ""
 					if unusedTime := formatUnusedTime(entry.LastAccess); unusedTime != "" {
 						hintLabel = fmt.Sprintf("%s%s%s", colorGray, unusedTime, colorReset)
+						if m.width > 0 && m.width < nameWidth+calculateBarWidth(m.width)+32+displayWidth(hintLabel) {
+							hintLabel = ""
+						}
 					}
 
 					if hintLabel == "" {
@@ -297,7 +303,7 @@ func (m model) View() string {
 					}
 					percentStr := formatPercent(percent, entry.Size >= 0 && m.totalSize > 0 && entry.State == scanComplete && m.scanState == scanComplete)
 
-					bar := coloredProgressBar(sizeValue, maxSize, percent)
+					bar := coloredProgressBar(sizeValue, maxSize, percent, calculateBarWidth(m.width))
 
 					sizeColor := sizeColorForPercent(percent)
 					size := sizeColumn(measuredSizeLabel(entry.Size, entry.State))
@@ -334,6 +340,9 @@ func (m model) View() string {
 					displayIndex := idx + 1
 
 					hintLabel := entryHintLabel(entry)
+					if m.width < nameWidth+calculateBarWidth(m.width)+37+displayWidth(hintLabel) {
+						hintLabel = ""
+					}
 					activityMarker := "|"
 					if entry.IsDir && m.liveScanningPaths != nil && m.liveScanningPaths[entry.Path] {
 						activityMarker = fmt.Sprintf("%s%s%s%s", colorCyan, colorBold, spinnerFrames[m.spinner], colorReset)

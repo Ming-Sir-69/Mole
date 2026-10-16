@@ -1082,8 +1082,8 @@ func renderTwoColumns(cards []cardData, width int) string {
 		return ""
 	}
 	cw := colWidth
-	if width > 0 && width/2-2 > cw {
-		cw = width/2 - 2
+	if width > 0 {
+		cw = max(1, width/2-2)
 	}
 
 	renderCell := func(cs []cardData) string {

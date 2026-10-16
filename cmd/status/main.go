@@ -178,9 +178,9 @@ func (m model) View() string {
 		termWidth,
 	)
 
-	renderFrame := func(cpuCores int) string {
+	renderFrame := func(cpuCores int, twoColumns bool) string {
 		var cardContent string
-		if termWidth <= 80 {
+		if !twoColumns {
 			cardWidth := termWidth
 			if cardWidth > 2 {
 				cardWidth -= 2
@@ -218,10 +218,16 @@ func (m model) View() string {
 	// window. Step the preference back down until the frame fits; the stored
 	// preference is untouched, so a taller window gets it back.
 	cpuCores := m.cpuCores
-	output := renderFrame(cpuCores)
+	twoColumns := termWidth > 80
+	output := renderFrame(cpuCores, twoColumns)
 	for m.height > 0 && lipgloss.Height(output) > m.height && cpuCores != cpuCoresCycle[0] {
 		cpuCores = smallerCPUCores(cpuCores)
-		output = renderFrame(cpuCores)
+		output = renderFrame(cpuCores, twoColumns)
+	}
+	// Reuse the two-column layout when a short console cannot fit the stacked
+	// cards. Keep tall narrow windows stacked and preserve every card.
+	if m.height > 0 && lipgloss.Height(output) > m.height && !twoColumns && termWidth >= 60 {
+		output = renderFrame(cpuCores, true)
 	}
 	return padViewToHeight(output, m.height)
 }

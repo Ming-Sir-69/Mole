@@ -1491,3 +1491,31 @@ func stripANSI(s string) string {
 	}
 	return result.String()
 }
+
+func TestStatusFitsShortNarrowTerminal(t *testing.T) {
+	snapshots := []MetricsSnapshot{{}, {
+		CPU:          CPUStatus{Usage: 20, LogicalCPU: 8, PerCore: []float64{10, 20, 30, 40, 50, 60, 70, 80}},
+		Memory:       MemoryStatus{Total: 16 << 30, Used: 8 << 30},
+		TopProcesses: []ProcessInfo{{Name: "A", CPU: 20}, {Name: "B", CPU: 10}, {Name: "C", CPU: 5}, {Name: "D", CPU: 3}, {Name: "E", CPU: 1}},
+		Disks:        []DiskStatus{{Mount: "C:", Total: 512 << 30, Used: 256 << 30}},
+	}}
+	for _, snapshot := range snapshots {
+		for _, width := range []int{60, 79, 80, 81, 120} {
+			for _, height := range []int{24, 40} {
+				m := model{width: width, height: height, schedule: collectionSchedule{hasSnapshot: true}, metrics: snapshot, cpuCores: 2}
+				view := m.View()
+				if got := lipgloss.Height(view); got > height {
+					t.Errorf("%dx%d height=%d", width, height, got)
+				}
+				if got := lipgloss.Width(view); got > width {
+					t.Errorf("%dx%d width=%d", width, height, got)
+				}
+				for _, title := range []string{"CPU", "Memory", "Disk", "Power", "Processes", "Network"} {
+					if !strings.Contains(stripANSI(view), title) {
+						t.Errorf("missing card %s", title)
+					}
+				}
+			}
+		}
+	}
+}

@@ -17,7 +17,7 @@ func TestSpinnerFramesHaveSingleColumnWidth(t *testing.T) {
 	}
 }
 
-func TestRuneWidth(t *testing.T) {
+func TestDisplayWidthCharacters(t *testing.T) {
 	tests := []struct {
 		name  string
 		input rune
@@ -31,13 +31,13 @@ func TestRuneWidth(t *testing.T) {
 		{"CJK ideograph", '語', 2},
 		{"Full-width number", '１', 2},
 		{"ASCII space", ' ', 1},
-		{"Tab", '	', 1},
+		{"Tab", '	', 0},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := runeWidth(tt.input); got != tt.want {
-				t.Errorf("runeWidth(%q) = %d, want %d", tt.input, got, tt.want)
+			if got := displayWidth(string(tt.input)); got != tt.want {
+				t.Errorf("displayWidth(%q) = %d, want %d", tt.input, got, tt.want)
 			}
 		})
 	}
@@ -160,7 +160,7 @@ func TestColoredProgressBarKeepsFixedWidth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := coloredProgressBar(tt.value, tt.maxValue, tt.percent)
+			got := coloredProgressBar(tt.value, tt.maxValue, tt.percent, barWidth)
 			if width := lipgloss.Width(got); width != barWidth {
 				t.Fatalf("progress bar width = %d, want %d for %q", width, barWidth, got)
 			}
@@ -205,7 +205,7 @@ func TestColoredProgressBarSurvivesExtremeSizes(t *testing.T) {
 	}
 	for _, size := range sizes {
 		for _, pair := range [][2]int64{{size, size}, {1, size}, {size, 1}} {
-			got := coloredProgressBar(pair[0], pair[1], 50)
+			got := coloredProgressBar(pair[0], pair[1], 50, barWidth)
 			if width := lipgloss.Width(got); width != barWidth {
 				t.Fatalf("value=%d max=%d width=%d, want %d", pair[0], pair[1], width, barWidth)
 			}
@@ -408,7 +408,7 @@ func TestCalculateNameWidth(t *testing.T) {
 		{120, 59, 60}, // 120 - 61 = 59
 		{200, 60, 60}, // Capped at 60
 		{70, 24, 60},  // Below minimum, use 24
-		{50, 24, 60},  // Very small, use minimum
+		{50, 13, 13},  // Bar disappears before names lose their remaining space
 	}
 
 	for _, tt := range tests {
@@ -456,5 +456,27 @@ func TestFormatUnusedTime(t *testing.T) {
 				t.Errorf("formatUnusedTime(%d days ago) = %q, want %q", tt.daysAgo, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestUnicodeColumnsPreserveGraphemes(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		width int
+	}{
+		{"微信输入法", 10}, {"资料、备份", 10}, {"Cafe\u0301", 4}, {"ｶﾀｶﾅ", 4}, {"👨‍👩‍👧‍👦", 2},
+	} {
+		if got := displayWidth(tt.name); got != tt.width {
+			t.Errorf("%q width=%d want %d", tt.name, got, tt.width)
+		}
+		if got := lipgloss.Width(padName(tt.name, 24)); got != 24 {
+			t.Errorf("%q padded width=%d", tt.name, got)
+		}
+	}
+	if got := trimNameWithWidth("Cafe\u0301 xyz", 4); got != "C..." {
+		t.Errorf("trim=%q", got)
+	}
+	if got := truncateMiddle("👨‍👩‍👧‍👦abc", 2); got != "👨‍👩‍👧‍👦" {
+		t.Errorf("split grapheme=%q", got)
 	}
 }

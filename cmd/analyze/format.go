@@ -7,9 +7,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Left-aligned block elements filling 1/8 through 7/8 of a cell, indexed by
@@ -37,50 +38,17 @@ func displayPath(path string) string {
 
 // truncateMiddle trims the middle, keeping head and tail.
 func truncateMiddle(s string, maxWidth int) string {
-	runes := []rune(s)
-	currentWidth := displayWidth(s)
-
-	if currentWidth <= maxWidth {
+	maxWidth = max(0, maxWidth)
+	width := displayWidth(s)
+	if width <= maxWidth {
 		return s
 	}
-
 	if maxWidth < 10 {
-		width := 0
-		for i, r := range runes {
-			width += runeWidth(r)
-			if width > maxWidth {
-				return string(runes[:i])
-			}
-		}
-		return s
+		return ansi.Truncate(s, maxWidth, "")
 	}
-
-	targetHeadWidth := (maxWidth - 3) / 3
-	targetTailWidth := maxWidth - 3 - targetHeadWidth
-
-	headWidth := 0
-	headIdx := 0
-	for i, r := range runes {
-		w := runeWidth(r)
-		if headWidth+w > targetHeadWidth {
-			break
-		}
-		headWidth += w
-		headIdx = i + 1
-	}
-
-	tailWidth := 0
-	tailIdx := len(runes)
-	for i, r := range slices.Backward(runes) {
-		w := runeWidth(r)
-		if tailWidth+w > targetTailWidth {
-			break
-		}
-		tailWidth += w
-		tailIdx = i
-	}
-
-	return string(runes[:headIdx]) + "..." + string(runes[tailIdx:])
+	head := (maxWidth - 3) / 3
+	tail := maxWidth - 3 - head
+	return ansi.Truncate(s, head, "") + "..." + ansi.TruncateLeft(s, width-tail, "")
 }
 
 func formatNumber(n int64) string {
@@ -125,9 +93,12 @@ func formatPercent(percent float64, known bool) string {
 	return fmt.Sprintf("%*s", width, label)
 }
 
-func coloredProgressBar(value, maxValue int64, percent float64) string {
+func coloredProgressBar(value, maxValue int64, percent float64, width int) string {
+	if width <= 0 {
+		return ""
+	}
 	if value <= 0 || maxValue <= 0 {
-		return strings.Repeat(" ", barWidth)
+		return strings.Repeat(" ", width)
 	}
 
 	var barColor string
@@ -143,17 +114,17 @@ func coloredProgressBar(value, maxValue int64, percent float64) string {
 
 	// Length is measured in eighths of a cell, taken in float64 so a huge byte
 	// count cannot overflow into a negative repeat count.
-	eighths := max(int64(math.Round(float64(value)/float64(maxValue)*float64(barWidth)*8)), 0)
+	eighths := max(int64(math.Round(float64(value)/float64(maxValue)*float64(width)*8)), 0)
 	full := int(eighths / 8)
 	remainder := int(eighths % 8)
-	if full >= barWidth {
-		return barColor + strings.Repeat("█", barWidth) + colorReset
+	if full >= width {
+		return barColor + strings.Repeat("█", width) + colorReset
 	}
 
 	if full == 0 && remainder == 0 {
 		// Under an eighth of a cell there is no honest length left to draw, but
 		// the row still holds a real value; a gray tick holds the place.
-		return colorGray + subCellBlocks[1] + strings.Repeat(" ", barWidth-1) + colorReset
+		return colorGray + subCellBlocks[1] + strings.Repeat(" ", width-1) + colorReset
 	}
 
 	var bar strings.Builder
@@ -164,86 +135,39 @@ func coloredProgressBar(value, maxValue int64, percent float64) string {
 		bar.WriteString(subCellBlocks[remainder])
 		drawn++
 	}
-	bar.WriteString(strings.Repeat(" ", barWidth-drawn))
+	bar.WriteString(strings.Repeat(" ", width-drawn))
 	bar.WriteString(colorReset)
 	return bar.String()
 }
 
-// runeWidth returns display width for wide characters and emoji.
-func runeWidth(r rune) int {
-	if r >= 0x4E00 && r <= 0x9FFF || // CJK Unified Ideographs
-		r >= 0x3400 && r <= 0x4DBF || // CJK Extension A
-		r >= 0x20000 && r <= 0x2A6DF || // CJK Extension B
-		r >= 0x2A700 && r <= 0x2B73F || // CJK Extension C
-		r >= 0x2B740 && r <= 0x2B81F || // CJK Extension D
-		r >= 0x2B820 && r <= 0x2CEAF || // CJK Extension E
-		r >= 0x3040 && r <= 0x30FF || // Hiragana and Katakana
-		r >= 0x31F0 && r <= 0x31FF || // Katakana Phonetic Extensions
-		r >= 0xAC00 && r <= 0xD7AF || // Hangul Syllables
-		r >= 0xFF00 && r <= 0xFFEF || // Fullwidth Forms
-		r >= 0x1F300 && r <= 0x1F6FF || // Miscellaneous Symbols and Pictographs (includes Transport)
-		r >= 0x1F900 && r <= 0x1F9FF || // Supplemental Symbols and Pictographs
-		r >= 0x2600 && r <= 0x26FF || // Miscellaneous Symbols
-		r >= 0x2700 && r <= 0x27BF || // Dingbats
-		r >= 0xFE10 && r <= 0xFE1F || // Vertical Forms
-		r >= 0x1F000 && r <= 0x1F02F { // Mahjong Tiles
-		return 2
+// Width and truncation share the terminal library's grapheme rules, including
+// combining accents, halfwidth kana, CJK punctuation and joined emoji.
+func displayWidth(s string) int { return ansi.StringWidth(s) }
+
+// Shrink the bar before the name column when a console is narrower than the
+// standard layout. Keep the existing 24-cell bar on wide terminals.
+func calculateBarWidth(termWidth int) int {
+	if termWidth <= 0 {
+		termWidth = 85
 	}
-	return 1
+	return min(barWidth, max(0, termWidth-61))
 }
 
-func displayWidth(s string) int {
-	width := 0
-	for _, r := range s {
-		width += runeWidth(r)
-	}
-	return width
-}
-
-// calculateNameWidth computes name column width from terminal width.
 func calculateNameWidth(termWidth int) int {
-	const fixedWidth = 61
-	available := termWidth - fixedWidth
-
-	if available < 24 {
-		return 24
+	if termWidth <= 0 {
+		termWidth = 85
 	}
-	if available > 60 {
-		return 60
-	}
-	return available
+	const fixedWithoutBar = 37
+	return min(60, max(1, termWidth-fixedWithoutBar-calculateBarWidth(termWidth)))
 }
 
 func trimNameWithWidth(name string, maxWidth int) string {
-	const (
-		ellipsis      = "..."
-		ellipsisWidth = 3
-	)
-
-	runes := []rune(name)
-	widths := make([]int, len(runes))
-	for i, r := range runes {
-		widths[i] = runeWidth(r)
+	maxWidth = max(0, maxWidth)
+	tail := "..."
+	if maxWidth < len(tail) {
+		tail = ""
 	}
-
-	currentWidth := 0
-	for i, w := range widths {
-		if currentWidth+w > maxWidth {
-			subWidth := currentWidth
-			j := i
-			for j > 0 && subWidth+ellipsisWidth > maxWidth {
-				j--
-				subWidth -= widths[j]
-			}
-			if j == 0 {
-				return ellipsis
-			}
-			return string(runes[:j]) + ellipsis
-		}
-		currentWidth += w
-	}
-
-	return name
+	return ansi.Truncate(name, maxWidth, tail)
 }
 
 func padName(name string, targetWidth int) string {
