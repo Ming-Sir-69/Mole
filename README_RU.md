@@ -251,6 +251,7 @@ mo purge --dry-run
 
 ## Поддержать проект
 
+- Самый прямой способ поддержать разработку Mole: приобрести [Mole for Windows](https://mole.fit/windows)
 - Если Mole вам помог, поставьте звезду, [расскажите о нём](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole/tree/windows&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Windows%20PC.) или откройте issue либо PR
 - Вклад в проект приветствуется; сначала прочитайте [CONTRIBUTING.md](CONTRIBUTING.md)
 - У меня двое котов, TangYuan и Coke; если Mole хоть немного облегчил вам жизнь, можете угостить их <a href="https://cats.tw93.fun?name=Mole" target="_blank">консервами 🥩</a>

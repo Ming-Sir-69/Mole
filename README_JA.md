@@ -16,7 +16,7 @@
   <img src="./docs/img/mole-windows.png" alt="Mole CLI for Windows メニュー" width="1000" />
 </p>
 
-> 💡 このブランチは無料のオープンソースWindows CLI（`mo`）です。ネイティブアプリがよければ、[Mole for Windows](https://mole.fit/windows) を別途ダウンロードできます。削除前の確認、アプリの更新、スタートアップ管理、ディスクの階層分析、リアルタイムのステータス表示を備えています。macOS版CLIは [mainブランチ](https://github.com/tw93/Mole) にあります。
+> 💡 このブランチは無料のオープンソースWindows CLI（`mo`）です。ネイティブアプリがよければ、[Mole for Windows](https://mole.fit/ja/windows) を別途ダウンロードできます。削除前の確認、アプリの更新、スタートアップ管理、ディスクの階層分析、リアルタイムのステータス表示を備えています。macOS版CLIは [mainブランチ](https://github.com/tw93/Mole) にあります。
 
 ## 機能
 
@@ -43,7 +43,7 @@ scoop install mole
 iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
 ```
 
-Moleの配布元はこのGitHubリポジトリ、Scoop、Windowsアプリ用の [mole.fit](https://mole.fit/windows) だけです。「Moleベース」をうたう別のアプリや、エンコードされたコマンドをターミナルに貼り付けるよう求めるサイトはMoleとは無関係です。
+Moleの配布元はこのGitHubリポジトリ、Scoop、Windowsアプリ用の [mole.fit](https://mole.fit/ja/windows) だけです。「Moleベース」をうたう別のアプリや、エンコードされたコマンドをターミナルに貼り付けるよう求めるサイトはMoleとは無関係です。
 
 **主要コマンド**
 
@@ -251,6 +251,7 @@ Moleの開発に貢献いただいたすべての方に感謝申し上げます�
 
 ## サポート
 
+- [Mole for Windows](https://mole.fit/ja/windows) の購入が、Moleの継続開発を支援する最も直接的な方法です
 - Moleが役に立った場合は、GitHubのStarや [Xでのシェア](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole/tree/windows&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Windows%20PC.)、Issue・PRでのフィードバックをお願いします
 - コントリビューションを歓迎します。まず [CONTRIBUTING.md](CONTRIBUTING.md) をお読みください
 - 我が家には「湯圓（タンユエン）」と「コーラ」という2匹の猫がいて、Moleが役に立ったら彼女たちに <a href="https://cats.tw93.fun?name=Mole" target="_blank">缶詰 🥩</a> をごちそうしてもらえるとうれしいです

@@ -16,7 +16,7 @@
   <img src="./docs/img/mole-windows.png" alt="Mole CLI for Windows 메뉴" width="1000" />
 </p>
 
-> 💡 이 브랜치는 무료 오픈소스 Windows CLI(`mo`)입니다. 네이티브 앱을 원한다면 [Mole for Windows](https://mole.fit/windows)를 별도로 내려받을 수 있습니다. 삭제 전 항목별 확인, 앱 업데이트, 시작 프로그램 관리, 디스크 단계별 분석, 실시간 상태 확인을 제공합니다. macOS CLI는 [main 브랜치](https://github.com/tw93/Mole)에 있습니다.
+> 💡 이 브랜치는 무료 오픈소스 Windows CLI(`mo`)입니다. 네이티브 앱을 원한다면 [Mole for Windows](https://mole.fit/ko/windows)를 별도로 내려받을 수 있습니다. 삭제 전 항목별 확인, 앱 업데이트, 시작 프로그램 관리, 디스크 단계별 분석, 실시간 상태 확인을 제공합니다. macOS CLI는 [main 브랜치](https://github.com/tw93/Mole)에 있습니다.
 
 ## 주요 기능
 
@@ -43,7 +43,7 @@ scoop install mole
 iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
 ```
 
-Mole은 이 GitHub 저장소, Scoop, 그리고 Windows 앱용 [mole.fit](https://mole.fit/windows)에서만 배포됩니다. "Mole 기반"이라고 소개하는 다른 앱이나 인코딩된 명령을 터미널에 붙여 넣으라고 하는 사이트는 Mole과 관련이 없습니다.
+Mole은 이 GitHub 저장소, Scoop, 그리고 Windows 앱용 [mole.fit](https://mole.fit/ko/windows)에서만 배포됩니다. "Mole 기반"이라고 소개하는 다른 앱이나 인코딩된 명령을 터미널에 붙여 넣으라고 하는 사이트는 Mole과 관련이 없습니다.
 
 **실행**
 
@@ -251,6 +251,7 @@ Mole 제작에 힘을 보태주신 모든 기여자분들께 감사드립니다.
 
 ## 후원 및 응원
 
+- [Mole for Windows](https://mole.fit/ko/windows)을 구매하시는 것이 Mole 개발을 지속하는 가장 직접적인 힘이 됩니다
 - Mole이 도움이 되셨다면 GitHub Star를 눌러주시고, [주변에 공유](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole/tree/windows&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Windows%20PC.)해 주시거나 Issue/PR로 함께해 주세요
 - 기여는 언제나 환영합니다. 먼저 [CONTRIBUTING.md](CONTRIBUTING.md)를 읽어 주세요
 - 제게는 '탕위안'과 '콜라'라는 고양이 두 마리가 있는데, Mole이 조금이라도 도움이 되셨다면 두 아이에게 <a href="https://cats.tw93.fun?name=Mole" target="_blank">맛있는 캔 🥩</a> 하나 선물해 주세요

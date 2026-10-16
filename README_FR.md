@@ -16,7 +16,7 @@
   <img src="./docs/img/mole-windows.png" alt="Menu de Mole CLI for Windows" width="1000" />
 </p>
 
-> 💡 Cette branche contient la CLI Windows open source gratuite (`mo`). Vous préférez une app native ? [Mole for Windows](https://mole.fit/windows) se télécharge séparément : nettoyage avec vérification avant suppression, mises à jour des applications, gestion du démarrage, exploration détaillée du disque et état en direct. La CLI macOS se trouve sur la [branche main](https://github.com/tw93/Mole).
+> 💡 Cette branche contient la CLI Windows open source gratuite (`mo`). Vous préférez une app native ? [Mole for Windows](https://mole.fit/fr/windows) se télécharge séparément : nettoyage avec vérification avant suppression, mises à jour des applications, gestion du démarrage, exploration détaillée du disque et état en direct. La CLI macOS se trouve sur la [branche main](https://github.com/tw93/Mole).
 
 ## Fonctionnalités
 
@@ -43,7 +43,7 @@ scoop install mole
 iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
 ```
 
-Mole est distribué uniquement via ce dépôt GitHub, Scoop et [mole.fit](https://mole.fit/windows) pour l'app Windows. Les sites qui proposent une app « basée sur Mole » ou vous demandent de coller une commande encodée dans un terminal n'ont aucun lien avec Mole.
+Mole est distribué uniquement via ce dépôt GitHub, Scoop et [mole.fit](https://mole.fit/fr/windows) pour l'app Windows. Les sites qui proposent une app « basée sur Mole » ou vous demandent de coller une commande encodée dans un terminal n'ont aucun lien avec Mole.
 
 **Commandes principales**
 
@@ -251,6 +251,7 @@ Merci à tous ceux qui contribuent au développement de Mole. Allez les suivre �
 
 ## Soutenir le projet
 
+- L'achat de [Mole for Windows](https://mole.fit/fr/windows) est le moyen le plus direct d'encourager le développement continu de Mole
 - Si Mole vous rend service, laissez-lui une étoile, [partagez-le](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole/tree/windows&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Windows%20PC.) ou proposez une issue / PR
 - Les contributions sont les bienvenues ; lisez d'abord [CONTRIBUTING.md](CONTRIBUTING.md)
 - J'ai deux chattes, TangYuan et Coke, et si Mole vous simplifie la vie, n'hésitez pas à leur offrir <a href="https://cats.tw93.fun?name=Mole" target="_blank">une boîte de pâtée 🥩</a>

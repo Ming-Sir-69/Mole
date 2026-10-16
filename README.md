@@ -251,6 +251,7 @@ Thanks to everyone who helped build Mole. Go follow them. ❤️
 
 ## Support
 
+- Getting [Mole for Windows](https://mole.fit/windows) is the most direct way to support Mole's development
 - If Mole helped you, give it a star, [share it](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole/tree/windows&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Windows%20PC.), or open an issue or PR
 - Contributions are welcome; read [CONTRIBUTING.md](CONTRIBUTING.md) first
 - I have two cats, TangYuan and Coke, and if Mole makes your life a little easier, feel free to treat them to <a href="https://cats.tw93.fun?name=Mole" target="_blank">canned food 🥩</a>

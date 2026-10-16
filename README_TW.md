@@ -251,6 +251,7 @@ mo purge --dry-run
 
 ## 支持專案
 
+- 購買 [Mole for Windows](https://mole.fit/tw/windows) 是支持 Mole 持續開發最直接的方式
 - 如果 Mole 幫到了你，歡迎點個 Star、[分享給朋友](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole/tree/windows&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Windows%20PC.)，或在 GitHub 提交 Issue 和 PR
 - 歡迎參與貢獻，先看一下 [CONTRIBUTING.md](CONTRIBUTING.md)
 - 我養了兩隻貓，湯圓和可樂，如果 Mole 用著順手，歡迎請她們吃一頓 <a href="https://cats.tw93.fun?name=Mole" target="_blank">罐頭 🥩</a>

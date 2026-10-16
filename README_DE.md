@@ -16,7 +16,7 @@
   <img src="./docs/img/mole-windows.png" alt="Mole CLI for Windows Menü" width="1000" />
 </p>
 
-> 💡 Dieser Branch ist das kostenlose Open-Source-Windows-CLI (`mo`). Lieber eine native App? [Mole for Windows](https://mole.fit/windows) ist ein separater Download mit Prüfung vor dem Löschen, App-Updates, Autostart-Verwaltung, Festplatten-Drill-down und Live-Status. Das macOS-CLI findest du im [main-Branch](https://github.com/tw93/Mole).
+> 💡 Dieser Branch ist das kostenlose Open-Source-Windows-CLI (`mo`). Lieber eine native App? [Mole for Windows](https://mole.fit/de/windows) ist ein separater Download mit Prüfung vor dem Löschen, App-Updates, Autostart-Verwaltung, Festplatten-Drill-down und Live-Status. Das macOS-CLI findest du im [main-Branch](https://github.com/tw93/Mole).
 
 ## Funktionen
 
@@ -43,7 +43,7 @@ scoop install mole
 iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex
 ```
 
-Mole wird nur über dieses GitHub-Repository, Scoop und [mole.fit](https://mole.fit/windows) für die Windows-App verteilt. Websites, die eine „auf Mole basierende“ App anbieten oder dich auffordern, einen kodierten Befehl ins Terminal einzufügen, haben nichts mit Mole zu tun.
+Mole wird nur über dieses GitHub-Repository, Scoop und [mole.fit](https://mole.fit/de/windows) für die Windows-App verteilt. Websites, die eine „auf Mole basierende“ App anbieten oder dich auffordern, einen kodierten Befehl ins Terminal einzufügen, haben nichts mit Mole zu tun.
 
 **Befehle**
 
@@ -251,6 +251,7 @@ Vielen Dank an alle Mitwirkenden, die Mole voranbringen. Folge ihnen gern ❤️
 
 ## Unterstützung
 
+- Der Kauf von [Mole for Windows](https://mole.fit/de/windows) ist die direkteste Art, die Entwicklung von Mole zu unterstützen
 - Wenn dir Mole hilft, gib dem Projekt einen Stern, [teile es auf X](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole/tree/windows&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Windows%20PC.) oder erstelle ein Issue/PR
 - Beiträge sind willkommen; lies zuerst [CONTRIBUTING.md](CONTRIBUTING.md)
 - Ich habe zwei Katzen, TangYuan und Coke, und wenn Mole dir das Leben ein wenig leichter macht, spendiere ihnen gerne eine Dose <a href="https://cats.tw93.fun?name=Mole" target="_blank">Katzenfutter 🥩</a>
