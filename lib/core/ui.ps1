@@ -125,6 +125,8 @@ function Show-SummaryBlock {
         if ($detail) { Write-Host $detail }
     }
     Write-Host $divider
+    # Keep the shell prompt off the closing divider.
+    Write-Host ""
 }
 
 # ============================================================================

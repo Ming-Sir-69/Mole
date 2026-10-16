@@ -462,6 +462,7 @@ function Complete-MoleDebugSession {
     $nc = Get-MoleColor -Name "NC"
     Write-Host ""
     Write-Host "${gray}Debug session log saved to:${nc} $($script:LogConfig.LogFile)"
+    Write-Host ""
 }
 
 # ============================================================================

@@ -34,6 +34,15 @@ Describe 'Terminal presentation' {
         Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { $Object -match 'Space freed: 128 MB' }
     }
 
+    It 'leaves a blank line between the closing divider and the shell prompt' {
+        $script:HostLines = New-Object System.Collections.Generic.List[string]
+        Mock Write-Host { $script:HostLines.Add([string]$Object) }
+        Mock Get-TerminalSize { @{ Width = 40; Height = 24 } }
+        Show-SummaryBlock -Heading 'Cleanup complete' -Details @('Space freed: 128 MB')
+        $script:HostLines[$script:HostLines.Count - 2] | Should -Be ('=' * 40)
+        $script:HostLines[$script:HostLines.Count - 1] | Should -Be ''
+    }
+
     It 'caps the summary divider at the Mac width' {
         Mock Get-TerminalSize { @{ Width = 120; Height = 24 } }
         Show-SummaryBlock -Heading 'Preview' -Details @()
