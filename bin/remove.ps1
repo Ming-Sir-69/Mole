@@ -33,6 +33,28 @@ if ($ShowHelp) {
     return
 }
 
+# winget and Scoop track their own files; removing them here leaves the
+# package registered, so hand the user that manager's command instead.
+function Get-PackageManagerRemoveCommand {
+    param([string]$InstallDir)
+
+    $path = $InstallDir.TrimEnd('\') + '\'
+    if ($path -like "*\Microsoft\WinGet\Packages\tw93.MoleCLI_*") {
+        return "winget uninstall tw93.MoleCLI"
+    }
+    if ($path -like "*\scoop\apps\mole\*") {
+        return "scoop uninstall mole"
+    }
+    return $null
+}
+
+$removeCommand = Get-PackageManagerRemoveCommand -InstallDir $windowsDir
+if ($removeCommand) {
+    Write-Host "This copy of Mole is managed by a package manager." -ForegroundColor Yellow
+    Write-Host "Remove it with: $removeCommand" -ForegroundColor Yellow
+    exit 1
+}
+
 if (-not (Test-Path $installScript)) {
     Write-Host "Installer not found at: $installScript" -ForegroundColor Red
     exit 1

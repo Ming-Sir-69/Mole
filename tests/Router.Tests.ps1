@@ -136,6 +136,21 @@ Describe "mo remove" {
         Test-Path (Join-Path $script:Fake "uninstall-called.txt") | Should -BeFalse
     }
 
+    It "Sends a <Manager> install to its package manager instead of removing files" -ForEach @(
+        @{ Manager = "Scoop"; Dir = "scoop\apps\mole\1.36.0"; Expected = "scoop uninstall mole" },
+        @{ Manager = "winget"; Dir = "Microsoft\WinGet\Packages\tw93.MoleCLI_Microsoft.Winget.Source_8wekyb3d8bbwe"; Expected = "winget uninstall tw93.MoleCLI" }
+    ) {
+        $managed = Join-Path $TestDrive $Dir
+        New-Item -ItemType Directory -Path (Join-Path $managed "bin") -Force | Out-Null
+        Copy-Item (Join-Path $script:WindowsDir "bin\remove.ps1") (Join-Path $managed "bin\remove.ps1")
+        Copy-Item (Join-Path $script:Fake "install.ps1") (Join-Path $managed "install.ps1")
+
+        $output = ("y" | & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $managed "bin\remove.ps1") 2>&1 | Out-String)
+        $LASTEXITCODE | Should -Be 1
+        $output | Should -Match ([regex]::Escape($Expected))
+        Test-Path (Join-Path $managed "uninstall-called.txt") | Should -BeFalse
+    }
+
     It "Asks with the install path and removes on y" {
         $output = ("y" | & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $script:Fake "bin\remove.ps1") 2>&1 | Out-String)
         $output | Should -Not -Match "cannot be retrieved"

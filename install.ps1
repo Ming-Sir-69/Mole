@@ -823,7 +823,7 @@ function Uninstall-Mole {
             $handle.Dispose()
         }
         catch {
-            Write-MoleError "Cannot remove the native launcher while it is running or inaccessible: $nativeLauncher"
+            Write-MoleError "Cannot remove mo.exe while it is inaccessible or a Mole command runs through it, this one included: $nativeLauncher"
             $removeScript = (Join-Path $installPath 'mole.ps1').Replace("'", "''")
             Write-Info "Close other Mole sessions, then run in PowerShell: & '$removeScript' remove"
             return $false
