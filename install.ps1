@@ -806,6 +806,23 @@ function Uninstall-Mole {
 
     Assert-InstallPhysicalPath -Path $installPath
 
+    # A running native launcher cannot be deleted on Windows. Check before
+    # changing PATH, shortcuts or any files, rather than leaving half an install.
+    $nativeLauncher = Join-Path $installPath 'mo.exe'
+    if (Test-Path -LiteralPath $nativeLauncher) {
+        try {
+            Assert-InstallPhysicalPath -Path $nativeLauncher
+            $handle = [IO.File]::Open($nativeLauncher, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+            $handle.Dispose()
+        }
+        catch {
+            Write-MoleError "Cannot remove the native launcher while it is running or inaccessible: $nativeLauncher"
+            $removeScript = (Join-Path $installPath 'mole.ps1').Replace("'", "''")
+            Write-Info "Close other Mole sessions, then run in PowerShell: & '$removeScript' remove"
+            return $false
+        }
+    }
+
     # Remove from PATH
     $null = Remove-FromUserPath -Directory $installPath
 
@@ -871,8 +888,12 @@ function Uninstall-Mole {
             # operations.log is the record of what Mole removed; support reads it after
             # a report, so it outlives the CLI along with its rotated copy.
             try {
+                # Checking children cannot protect a linked config root or ancestor:
+                # enumeration would already have followed it into another directory.
+                Assert-InstallPhysicalPath -Path $configDir
                 $kept = @()
                 foreach ($item in @(Get-ChildItem -LiteralPath $configDir -Force -ErrorAction Stop)) {
+                    Assert-InstallPhysicalPath -Path $configDir
                     if ($item.Name -like 'operations.log*') { $kept += $item.Name; continue }
                     Remove-MoleConfigEntry -Item $item
                 }

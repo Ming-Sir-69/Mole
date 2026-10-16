@@ -193,6 +193,75 @@ Describe "install.ps1 -Uninstall" {
         Test-Path -LiteralPath $config | Should -BeFalse
     }
 
+    It "Removes an unlocked native launcher through the PowerShell entrypoint" {
+        $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
+        New-CliTree -Root $own
+        $InstallDir = $own
+        Set-Content -LiteralPath (Join-Path $own 'mo.exe') -Value 'fixture'
+
+        Uninstall-Mole | Should -BeTrue
+
+        Test-Path -LiteralPath $own | Should -BeFalse
+    }
+
+    It "Refuses a locked native launcher before changing any install files or PATH" {
+        $own = Join-Path $env:LOCALAPPDATA "Programs\mole's cli"
+        New-CliTree -Root $own
+        $InstallDir = $own
+        $exe = Join-Path $own 'mo.exe'
+        Set-Content -LiteralPath $exe -Value 'locked fixture'
+        Mock Remove-FromUserPath {}
+        Mock Remove-StartMenuShortcut { $true }
+        Mock Write-Info {}
+        $expectedCommand = "Close other Mole sessions, then run in PowerShell: & '" + (Join-Path $own 'mole.ps1').Replace("'", "''") + "' remove"
+        $handle = [IO.File]::Open($exe, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            Uninstall-Mole | Should -BeFalse
+            Test-Path -LiteralPath (Join-Path $own 'lib\core\base.ps1') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $own 'VERSION') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $own 'mo.cmd') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $own 'mole.ps1') | Should -BeTrue
+            Should -Invoke Remove-FromUserPath -Times 0 -Exactly
+            Should -Invoke Remove-StartMenuShortcut -Times 0 -Exactly
+            Should -Invoke Write-Info -Times 1 -Exactly -ParameterFilter { $Message -eq $expectedCommand }
+        }
+        finally { $handle.Dispose() }
+    }
+
+    It "Keeps config behind a junction at <LinkedPart>" -TestCases @(
+        @{ LinkedPart = 'mole' }
+        @{ LinkedPart = '.config' }
+    ) {
+        param($LinkedPart)
+        $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
+        New-CliTree -Root $own
+        $InstallDir = $own
+        $env:USERPROFILE = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        $outside = Join-Path $env:LOCALAPPDATA "outside"
+        New-Item -ItemType Directory -Path $outside, $env:USERPROFILE -Force | Out-Null
+        if ($LinkedPart -eq 'mole') {
+            New-Item -ItemType Directory -Path (Join-Path $env:USERPROFILE '.config') -Force | Out-Null
+            $link = Join-Path $env:USERPROFILE '.config\mole'
+            $sentinel = Join-Path $outside 'keep.txt'
+        }
+        else {
+            New-Item -ItemType Directory -Path (Join-Path $outside 'mole') -Force | Out-Null
+            $link = Join-Path $env:USERPROFILE '.config'
+            $sentinel = Join-Path $outside 'mole\keep.txt'
+        }
+        Set-Content -LiteralPath $sentinel -Value 'keep'
+        $null = New-Item -ItemType Junction -Path $link -Target $outside
+        Mock Read-Host { 'y' }
+        try {
+            Uninstall-Mole | Should -BeTrue
+            Get-Content -LiteralPath $sentinel | Should -Be 'keep'
+            Test-Path -LiteralPath $link | Should -BeTrue
+        }
+        finally {
+            if (Test-Path -LiteralPath $link) { [System.IO.Directory]::Delete($link) }
+        }
+    }
+
     It "Unlinks a junction in the config folder and keeps its target's files" {
         $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
         New-CliTree -Root $own

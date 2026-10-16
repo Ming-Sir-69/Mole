@@ -208,20 +208,24 @@ Describe "System image and file checks" {
     }
 
     It "Reports '<Expect>' for sfc output '<Text>'" -ForEach @(
-        @{ Text = "Windows Resource Protection did not find any integrity violations."; Expect = "No integrity violations found" }
-        @{ Text = "Windows Resource Protection found corrupt files and successfully repaired them."; Expect = "Corrupt files were repaired" }
-        @{ Text = "Der Windows-Ressourcenschutz hat keine Integritaetsverletzungen gefunden."; Expect = "Scan finished; details are in" }
+        @{ Text = "Windows Resource Protection did not find any integrity violations."; Expect = "No integrity violations found"; Action = "OPTIMIZED" }
+        @{ Text = "Windows Resource Protection found corrupt files and successfully repaired them."; Expect = "Corrupt files were repaired"; Action = "OPTIMIZED" }
+        @{ Text = "Der Windows-Ressourcenschutz hat keine Integritaetsverletzungen gefunden."; Expect = "Scan finished; details are in"; Action = "FAILED" }
     ) {
         $savedTemp = $env:TEMP
         try {
             $env:TEMP = $TestDrive
-            [System.IO.File]::WriteAllBytes((Join-Path $TestDrive "sfc_output.txt"), [System.Text.Encoding]::Unicode.GetBytes($Text))
-            Mock Start-Process { [pscustomobject]@{ ExitCode = 0 } }
-            Mock Remove-Item { }
+            $script:SfcFixtureText = $Text
+            Mock Start-Process {
+                [System.IO.File]::WriteAllBytes($RedirectStandardOutput, [System.Text.Encoding]::Unicode.GetBytes($script:SfcFixtureText))
+                [pscustomobject]@{ ExitCode = 0 }
+            }
+            Mock Remove-Item { [IO.File]::Delete($LiteralPath) }
+            $script:ExpectedSfcAction = $Action
             $output = Test-SystemFiles 6>&1 | Out-String
             $output | Should -Match ([regex]::Escape($Expect))
             $output | Should -Not -Match "Scan completed"
-            Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq "OPTIMIZED" -and $Path -eq "System files" -and $Detail -like "sfc /scannow exit code 0: *" }
+            Should -Invoke Write-MoleOperation -Times 1 -Exactly -ParameterFilter { $Action -eq $script:ExpectedSfcAction -and $Path -eq "System files" -and $Detail -like "sfc /scannow exit code 0: *" }
         }
         finally { $env:TEMP = $savedTemp }
     }
@@ -240,5 +244,130 @@ Describe 'Review regressions: health summary' {
         Test-SystemImage 6>$null
         $script:IssuesFound | Should -Be 0
         Show-OptimizeSummary | Should -Not -Match 'System health: Good'
+    }
+}
+
+Describe 'SFC scratch ownership and outcome' {
+    BeforeEach {
+        $script:DryRun = $false
+        $script:IssuesFound = 0
+        $script:IssuesFixed = 0
+        $script:SfcScratch = $null
+        Mock Test-IsAdmin { $true }
+        Mock Write-MoleOperation {}
+    }
+    It 'Preserves an existing fixed-name file and removes its own scratch after <Mode>' -ForEach @(
+        @{ Mode = 'success' }, @{ Mode = 'start failure' }, @{ Mode = 'read failure' }
+    ) {
+        $savedTemp = $env:TEMP
+        $script:SfcMode = $Mode
+        try {
+            $env:TEMP = $TestDrive
+            $existing = Join-Path $TestDrive 'sfc_output.txt'
+            Set-Content -LiteralPath $existing -Value 'unrelated'
+            Mock Start-Process {
+                $script:SfcScratch = $RedirectStandardOutput
+                Test-Path -LiteralPath $RedirectStandardOutput | Should -BeTrue
+                if ($script:SfcMode -eq 'start failure') { throw 'fixture startup failure' }
+                [IO.File]::WriteAllBytes($RedirectStandardOutput, [Text.Encoding]::Unicode.GetBytes('did not find any integrity violations'))
+                [pscustomobject]@{ ExitCode = 0 }
+            }
+            if ($Mode -eq 'read failure') { Mock Read-SfcOutput { throw 'fixture read failure' } }
+            Test-SystemFiles 6>$null
+            Get-Content -LiteralPath $existing | Should -Be 'unrelated'
+            $script:SfcScratch | Should -Not -BeNullOrEmpty
+            $script:SfcScratch | Should -Not -Be $existing
+            Test-Path -LiteralPath $script:SfcScratch | Should -BeFalse
+        }
+        finally { $env:TEMP = $savedTemp }
+    }
+    It 'Does not claim a successful repair from stdout when SFC exits nonzero' {
+        Mock Start-Process {
+            [IO.File]::WriteAllBytes($RedirectStandardOutput, [Text.Encoding]::Unicode.GetBytes('found corrupt files and successfully repaired'))
+            [pscustomobject]@{ ExitCode = 5 }
+        }
+        $output = Test-SystemFiles 6>&1 | Out-String
+        $output | Should -Match 'did not complete \(exit code 5\)'
+        $output | Should -Not -Match 'Corrupt files were repaired'
+        $script:IssuesFixed | Should -Be 0
+        Should -Invoke Write-MoleOperation -Exactly -Times 1 -ParameterFilter { $Action -eq 'FAILED' -and $Detail -like '*exit code 5:*' }
+    }
+}
+
+Describe 'Bounded local Windows Update inspection' {
+    BeforeAll {
+        # Job cmdlets coerce their typed Job[] argument before Pester's mock runs.
+        # Untyped seams keep these tests on disposable data, with no worker launch.
+        function Wait-Job { param($Job, $Timeout) throw 'Wait-Job must be mocked' }
+        function Receive-Job { param($Job, $ErrorAction) throw 'Receive-Job must be mocked' }
+        function Stop-Job { param($Job, $ErrorAction) throw 'Stop-Job must be mocked' }
+        function Remove-Job { param($Job, [switch]$Force, $ErrorAction) throw 'Remove-Job must be mocked' }
+    }
+    BeforeEach {
+        $script:IssuesFound = 0
+        $script:UpdateJob = [pscustomobject]@{ State = 'Completed' }
+        $script:UpdateResult = [pscustomobject]@{ Total = 0; Important = 0 }
+        Mock Start-Spinner {}
+        Mock Stop-Spinner {}
+        Mock Start-Job { $script:UpdateJob }
+        Mock Wait-Job { $script:UpdateJob }
+        Mock Receive-Job { $script:UpdateResult }
+        Mock Stop-Job {}
+        Mock Remove-Job {}
+        # An unbounded in-process COM query must fail rather than contact Windows Update.
+        Mock New-Object { throw 'COM must run in the isolated job' } -ParameterFilter { $ComObject -eq 'Microsoft.Update.Session' }
+    }
+    It 'Keeps a timed-out query unknown and reclaims its worker' {
+        $script:UpdateJob.State = 'Running'
+        Mock Wait-Job { $null }
+        $output = Test-WindowsUpdate 6>&1 | Out-String
+        $output | Should -Match 'Could not check Windows Update status'
+        $output | Should -Not -Match 'up to date|No pending updates'
+        $script:IssuesFound | Should -Be 0
+        Should -Invoke Wait-Job -Exactly -Times 1 -ParameterFilter { $Timeout -eq 5 }
+        Should -Invoke Receive-Job -Exactly -Times 0
+        Should -Invoke Stop-Job -Exactly -Times 1
+        Should -Invoke Remove-Job -Exactly -Times 1
+        Should -Invoke Stop-Spinner -Exactly -Times 1
+    }
+    It 'Reports <Expected> only after a complete result' -ForEach @(
+        @{ Total = 0; Important = 0; Expected = 'No pending updates in the local catalog'; Issues = 0 },
+        @{ Total = 1; Important = 0; Expected = '1 optional updates available'; Issues = 0 },
+        @{ Total = 2; Important = 1; Expected = '1 important updates available'; Issues = 1 }
+    ) {
+        $script:UpdateResult = [pscustomobject]@{ Total = $Total; Important = $Important }
+        $output = Test-WindowsUpdate 6>&1 | Out-String
+        $output | Should -Match $Expected
+        $script:IssuesFound | Should -Be $Issues
+        Should -Invoke Receive-Job -Exactly -Times 1
+        Should -Invoke Remove-Job -Exactly -Times 1
+    }
+    It 'Does not turn a failed or empty job into an up-to-date verdict' -ForEach @('Failed', 'Empty') {
+        if ($_ -eq 'Failed') { $script:UpdateJob.State = 'Failed' }
+        else { Mock Receive-Job { } }
+        $output = Test-WindowsUpdate 6>&1 | Out-String
+        $output | Should -Match 'Could not check Windows Update status'
+        $script:IssuesFound | Should -Be 0
+        Should -Invoke Remove-Job -Exactly -Times 1
+    }
+    It 'Queries the local catalog and counts a single important result' {
+        $script:UpdateSearcher = [pscustomobject]@{ Online = $true; Criteria = $null }
+        $script:UpdateSearcher | Add-Member ScriptMethod Search {
+            param($criteria)
+            $this.Criteria = $criteria
+            [pscustomobject]@{ Updates = @([pscustomobject]@{ MsrcSeverity = 'Important' }) }
+        }
+        $script:UpdateSession = [pscustomobject]@{}
+        $script:UpdateSession | Add-Member ScriptMethod CreateUpdateSearcher { $script:UpdateSearcher }
+        Mock New-Object { $script:UpdateSession } -ParameterFilter { $ComObject -eq 'Microsoft.Update.Session' }
+        Mock Start-Job {
+            $script:UpdateResult = & $ScriptBlock
+            $script:UpdateJob
+        }
+        $output = Test-WindowsUpdate 6>&1 | Out-String
+        $script:UpdateSearcher.Online | Should -BeFalse
+        $script:UpdateSearcher.Criteria | Should -Be 'IsInstalled=0'
+        $output | Should -Match '1 important updates available'
+        $script:IssuesFound | Should -Be 1
     }
 }

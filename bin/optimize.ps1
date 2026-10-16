@@ -334,19 +334,27 @@ function Test-SystemFiles {
 
     Write-Host "  Running System File Checker (this may take several minutes)..."
 
+    $outputPath = $null
     try {
+        # Atomically reserve our own scratch file, never a shared fixed filename.
+        $outputPath = [System.IO.Path]::GetTempFileName()
         $sfcResult = Start-Process -FilePath "sfc.exe" -ArgumentList "/scannow" `
-            -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\sfc_output.txt" -ErrorAction Stop
+            -Wait -PassThru -NoNewWindow -RedirectStandardOutput $outputPath -ErrorAction Stop
 
-        $output = Read-SfcOutput "$env:TEMP\sfc_output.txt"
-        Remove-Item "$env:TEMP\sfc_output.txt" -Force -ErrorAction SilentlyContinue
+        $output = Read-SfcOutput $outputPath
 
         $sfcExit = if ($sfcResult -and $sfcResult.PSObject.Properties['ExitCode']) { $sfcResult.ExitCode } else { "unknown" }
         $verdict = if ($output -match "did not find any integrity violations") { "no integrity violations" }
         elseif ($output -match "found corrupt files and successfully repaired") { "repaired corrupt files" }
         elseif ($output -match "found corrupt files but was unable to fix") { "found corrupt files it could not repair" }
         else { "result not read, see CBS.log" }
-        Write-MoleOperation -Action "OPTIMIZED" -Path "System files" -Detail "sfc /scannow exit code ${sfcExit}: $verdict"
+        $completed = $sfcExit -eq 0 -and $verdict -in @("no integrity violations", "repaired corrupt files")
+        $action = if ($completed) { "OPTIMIZED" } else { "FAILED" }
+        Write-MoleOperation -Action $action -Path "System files" -Detail "sfc /scannow exit code ${sfcExit}: $verdict"
+        if ($sfcExit -ne 0) {
+            Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m System File Checker did not complete (exit code $sfcExit)"
+            return
+        }
 
         if ($output -match "did not find any integrity violations") {
             Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m No integrity violations found"
@@ -368,6 +376,9 @@ function Test-SystemFiles {
     catch {
         Write-MoleOperation -Action "FAILED" -Path "System files" -Detail "sfc /scannow: $($_.Exception.Message)"
         Write-Host "  $esc[31m$($script:Icons.Error)$esc[0m System File Checker failed: $_"
+    }
+    finally {
+        if ($outputPath) { Remove-Item -LiteralPath $outputPath -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -483,31 +494,50 @@ function Test-WindowsUpdate {
     Write-Host ""
     Write-Host "$esc[34m$($script:Icons.Arrow) Windows Update$esc[0m"
 
+    $job = $null
+    Start-Spinner "Checking for updates..."
     try {
-        $updateSession = New-Object -ComObject Microsoft.Update.Session
-        $updateSearcher = $updateSession.CreateUpdateSearcher()
-
-        Start-Spinner "Checking for updates..."
-        try { $searchResult = $updateSearcher.Search("IsInstalled=0") } finally { Stop-Spinner }
-
-        $importantUpdates = $searchResult.Updates | Where-Object {
-            $_.MsrcSeverity -in @('Critical', 'Important')
+        # Query the local catalog in a disposable process: COM can stall even
+        # without network access, and must not hold the maintenance command open.
+        $job = Start-Job -ScriptBlock {
+            $ErrorActionPreference = 'Stop'
+            $updateSession = New-Object -ComObject Microsoft.Update.Session
+            $updateSearcher = $updateSession.CreateUpdateSearcher()
+            $updateSearcher.Online = $false
+            $searchResult = $updateSearcher.Search("IsInstalled=0")
+            [pscustomobject]@{
+                Total = $searchResult.Updates.Count
+                Important = @($searchResult.Updates | Where-Object { $_.MsrcSeverity -in @('Critical', 'Important') }).Count
+            }
         }
-
-        if ($importantUpdates.Count -gt 0) {
-            Write-Host "  $esc[33m$($script:Icons.Warning)$esc[0m $($importantUpdates.Count) important updates available"
+        $completed = Wait-Job -Job $job -Timeout 5
+        if (-not $completed -or $job.State -ne 'Completed') { throw 'Windows Update query did not complete' }
+        $result = @(Receive-Job -Job $job -ErrorAction Stop)
+        if ($result.Count -ne 1 -or $null -eq $result[0].Total -or $null -eq $result[0].Important -or
+            $result[0].Total -lt 0 -or $result[0].Important -lt 0 -or $result[0].Important -gt $result[0].Total) {
+            throw 'Windows Update query returned an incomplete result'
+        }
+        if ($result[0].Important -gt 0) {
+            Write-Host "  $esc[33m$($script:Icons.Warning)$esc[0m $($result[0].Important) important updates available"
             Write-Host "  $esc[90mRun Windows Update to install$esc[0m"
             $script:IssuesFound++
         }
-        elseif ($searchResult.Updates.Count -gt 0) {
-            Write-Host "  $esc[90m$($script:Icons.List)$esc[0m $($searchResult.Updates.Count) optional updates available"
+        elseif ($result[0].Total -gt 0) {
+            Write-Host "  $esc[90m$($script:Icons.List)$esc[0m $($result[0].Total) optional updates available"
         }
         else {
-            Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m System is up to date"
+            Write-Host "  $esc[32m$($script:Icons.Success)$esc[0m No pending updates in the local catalog"
         }
     }
     catch {
         Write-Host "  $esc[90mCould not check Windows Update status$esc[0m"
+    }
+    finally {
+        Stop-Spinner
+        if ($null -ne $job) {
+            if ($job.State -notin @('Completed', 'Failed', 'Stopped')) { Stop-Job -Job $job -ErrorAction SilentlyContinue }
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

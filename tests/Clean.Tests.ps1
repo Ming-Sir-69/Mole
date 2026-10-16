@@ -462,3 +462,42 @@ Describe 'Owner process timeout' {
         $outcome.Reason | Should -Match '^timed out after 1s; process tree \d+ stopped with taskkill /T /F$'
     }
 }
+
+Describe 'Owner cancellation evidence' {
+    It 'Reports <Expected> without inventing a stopped process tree' -ForEach @(
+        @{ Finished = $true; ExitCode = 5; Expected = 'taskkill exit code 5; process tree termination unverified' },
+        @{ Finished = $false; ExitCode = 0; Expected = 'taskkill timed out; process tree termination unverified' }
+    ) {
+        $script:FakeProcessIndex = 0
+        $script:FakeOwner = [pscustomobject]@{
+            StartInfo = $null; Id = 42; HasExited = $false; ExitCode = 0
+            StandardOutput = [IO.StringReader]::new(''); StandardError = [IO.StringReader]::new('')
+            Finished = $false; Disposed = $false; Killed = $false
+        }
+        $script:FakeStopper = [pscustomobject]@{
+            StartInfo = [Diagnostics.ProcessStartInfo]::new(); Id = 43; HasExited = $Finished; ExitCode = $ExitCode
+            StandardOutput = [IO.StringReader]::new(''); StandardError = [IO.StringReader]::new('')
+            Finished = $Finished; Disposed = $false; Killed = $false
+        }
+        foreach ($fake in @($script:FakeOwner, $script:FakeStopper)) {
+            $fake | Add-Member ScriptMethod Start { $true }
+            $fake | Add-Member ScriptMethod WaitForExit { param($milliseconds) $this.Finished }
+            $fake | Add-Member ScriptMethod Kill { $this.Killed = $true }
+            $fake | Add-Member ScriptMethod Dispose { $this.Disposed = $true }
+        }
+        Mock Get-Command { [pscustomobject]@{ Source = 'fixture.exe' } } -ParameterFilter { $Name -eq 'fixture-owner' }
+        Mock New-Object {
+            $script:FakeProcessIndex++
+            if ($script:FakeProcessIndex -eq 1) { return $script:FakeOwner }
+            return $script:FakeStopper
+        } -ParameterFilter { $TypeName -eq 'Diagnostics.Process' }
+        Mock New-Object { [Diagnostics.ProcessStartInfo]::new() } -ParameterFilter { $TypeName -eq 'Diagnostics.ProcessStartInfo' }
+        $outcome = @{}
+        Invoke-MoleOwnerProcess -Name 'fixture-owner' -Arguments @() -TimeoutSeconds 1 -Outcome $outcome | Should -BeNullOrEmpty
+        $outcome.Reason | Should -Be "timed out after 1s; $Expected"
+        $outcome.Reason | Should -Not -Match 'stopped with taskkill'
+        $script:FakeOwner.Killed | Should -BeTrue
+        $script:FakeOwner.Disposed | Should -BeTrue
+        $script:FakeStopper.Disposed | Should -BeTrue
+    }
+}

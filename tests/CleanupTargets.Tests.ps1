@@ -90,3 +90,34 @@ Describe 'Protected system cleanup does not disturb services' {
         Should -Invoke Set-Service -Times 0 -Exactly
     }
 }
+
+Describe 'Game media scope' {
+    BeforeAll { . "$(Split-Path -Parent $PSScriptRoot)\lib\clean\apps.ps1" }
+    It 'Keeps generic captures while still selecting old game captures' {
+        $savedProfile = $env:USERPROFILE
+        $savedPrograms = ${env:ProgramFiles(x86)}
+        try {
+            $env:USERPROFILE = Join-Path $TestDrive 'media-profile'
+            ${env:ProgramFiles(x86)} = Join-Path $TestDrive 'media-programs'
+            $paths = @(
+                "$env:USERPROFILE\Pictures\Screenshots\receipt.png",
+                "$env:USERPROFILE\Videos\Screen Recordings\training.mp4",
+                "$env:USERPROFILE\Videos\Captures\game.mp4",
+                "$env:USERPROFILE\Videos\Captures\recent.mp4"
+            )
+            foreach ($path in $paths) {
+                New-Item -ItemType Directory -Path (Split-Path $path) -Force | Out-Null
+                Set-Content -LiteralPath $path -Value 'fixture'
+                (Get-Item -LiteralPath $path).LastWriteTime = (Get-Date).AddDays(-100)
+            }
+            (Get-Item -LiteralPath $paths[3]).LastWriteTime = Get-Date
+            Mock Start-Section {}
+            Mock Stop-Section {}
+            Mock Remove-SafeItems {}
+            Clear-GameMediaFiles -DaysOld 90
+            Should -Invoke Remove-SafeItems -Exactly -Times 0 -ParameterFilter { @($Paths | Where-Object { $_ -like '*\Screenshots\*' -or $_ -like '*\Screen Recordings\*' }).Count -gt 0 }
+            Should -Invoke Remove-SafeItems -Exactly -Times 1 -ParameterFilter { @($Paths).Count -eq 1 -and $Paths -contains "$env:USERPROFILE\Videos\Captures\game.mp4" }
+        }
+        finally { $env:USERPROFILE = $savedProfile; ${env:ProgramFiles(x86)} = $savedPrograms }
+    }
+}

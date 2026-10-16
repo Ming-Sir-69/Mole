@@ -64,6 +64,7 @@ function Invoke-MoleOwnerProcess {
     finally {
         # Also terminate on capture exceptions, not only WaitForExit timeouts.
         if ($started -and -not $process.HasExited) {
+            $stopper = $null
             try {
                 $stopper = New-Object Diagnostics.Process
                 $stopper.StartInfo.FileName = "$env:SystemRoot\System32\taskkill.exe"
@@ -75,14 +76,16 @@ function Invoke-MoleOwnerProcess {
                 $null = $stopper.Start()
                 $null = $stopper.StandardOutput.ReadToEndAsync()
                 $null = $stopper.StandardError.ReadToEndAsync()
-                $null = $stopper.WaitForExit(5000)
-                $stopper.Dispose()
-                $Outcome.Reason = (@($Outcome.Reason, "process tree $($process.Id) stopped with taskkill /T /F") | Where-Object { $_ }) -join "; "
+                $stopResult = if (-not $stopper.WaitForExit(5000)) { "taskkill timed out; process tree termination unverified" }
+                elseif ($stopper.ExitCode -ne 0) { "taskkill exit code $($stopper.ExitCode); process tree termination unverified" }
+                else { "process tree $($process.Id) stopped with taskkill /T /F" }
+                $Outcome.Reason = (@($Outcome.Reason, $stopResult) | Where-Object { $_ }) -join "; "
             }
             catch {
                 Write-Debug "$Name process tree cancellation failed: $_"
                 $Outcome.Reason = (@($Outcome.Reason, "taskkill failed: $($_.Exception.Message)") | Where-Object { $_ }) -join "; "
             }
+            finally { if ($null -ne $stopper) { $stopper.Dispose() } }
             if (-not $process.HasExited) { try { $process.Kill() } catch { } }
         }
         $process.Dispose()
