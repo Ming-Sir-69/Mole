@@ -5,6 +5,8 @@ Reviewed on 2026-10-13 against `88cf57e8` on the `windows` branch. This describe
 
 Bounded follow-up on 2026-10-14: `0b78b46b` adds unreadable-whitelist retention and preserves Spotify stores; `3a7f8b7b` narrows the Proton Pass command exception. The affected claims below are updated. This is not a new full security audit; regression and delivery evidence is in the development record.
 
+Bounded follow-up on 2026-10-16 from `c6ce917e`: generic screenshots and screen recordings are retained even with `-GameMedia`; config removal refuses root/ancestor junctions; a locked native launcher is rejected before any uninstall mutation; SFC uses owned scratch and checked exit status. Windows Update inspection uses a bounded local-catalog query and retains unknown results instead of reporting zero updates. Operation logs now cover actual removal/recycle outcomes and checked owner-process termination, and Analyze append failures reach the existing debug session. This is a scoped repair review, not a new certification or release; current runtime receipts are in the development record.
+
 ## Threat Surface
 
 The primary risk is unintended local data loss. Relevant surfaces are automatic cleanup, project-artifact purge, application uninstallers and leftover recycling, Analyze deletion, system maintenance, installation and self-update. Read-only inspection and successful unit tests do not establish that every destructive operation is safe on every Windows installation.
@@ -21,7 +23,7 @@ The primary risk is unintended local data loss. Relevant surfaces are automatic 
 | Application leftovers | The registered uninstaller runs first. Leftover recycling requires the selected registration to be gone and a complete inventory with no same, parent or child install-folder owner. Preview and the removal guard both check ownership. | `tests/Uninstall.Tests.ps1` |
 | Leftover recovery | `ITransferSource.RecycleItem` is used on fixed local drives, with no permanent-delete fallback. Identity and descendant protection are rechecked. Recycled bytes do not count as freed disk space. | `tests/Recycle.Tests.ps1` |
 | Analyze deletion | Explicit selection/confirmation, raw path validation, ancestor identity binding, protected-descendant inspection and a final recheck precede the native shell operation. A generic name such as `build` is not a cleanable hint without a valid cache tag. | `cmd/analyze/windows_test.go`, `cmd/analyze/cleanable_test.go` |
-| CLI installation/removal | Known files are merged without clearing shared directories. Unknown files and nonempty Git metadata survive self-removal. Linked roots/ancestors and unrelated nonempty install roots are refused. | `tests/Install.Tests.ps1`, `tests/InstallLifecycle.Tests.ps1` |
+| CLI installation/removal | Known files are merged without clearing shared directories. Unknown files and nonempty Git metadata survive self-removal. Linked install/config roots and ancestors and unrelated nonempty install roots are refused. A locked native launcher is rejected before PATH, shortcut or file mutation, with a direct PowerShell removal command. | `tests/Install.Tests.ps1`, `tests/InstallLifecycle.Tests.ps1` |
 
 Automatic cleanup generally deletes permanently. Third-party uninstallers retain their own data-removal semantics. Analyze uses `SHFileOperationW` with undo support on fixed local drives and requests a Windows warning if the shell would permanently delete instead; this is not the same API or guarantee as leftover-only recycling. Windows shell behavior and user confirmation still matter.
 
@@ -39,7 +41,7 @@ Commands run with the caller's Windows permissions. Administrator-only maintenan
 
 Owner-cache preview records the resolved root without treating the whole store as reclaimable. Real accounting uses complete before/after measurements only when root identity is unchanged. A successful owner command can count as activity without an invented byte total. Native failures are checked through exit status rather than assumed to raise PowerShell exceptions.
 
-`lib/core/log.ps1` provides console diagnostics and optional file output. It is not a tamper-resistant transaction journal or a guarantee of crash recovery. Proxy rendering sanitizes environment and WinINet inputs; malformed values are not echoed, preventing embedded proxy credentials from appearing in Status.
+`lib/core/log.ps1` and `cmd/analyze/oplog.go` append real outcomes to `~\.config\mole\operations.log`, escape control bytes, retry held files briefly, and send failed appends to debug diagnostics. Dry runs write no operation rows, `MO_NO_OPLOG=1` disables them, and self-removal preserves them. The log is neither tamper-resistant nor a transaction or crash-recovery guarantee; a completed filesystem action can still lose its log row. Proxy rendering sanitizes environment and WinINet inputs; malformed values are not echoed, preventing embedded proxy credentials from appearing in Status.
 
 ## Installation and Release Integrity
 
