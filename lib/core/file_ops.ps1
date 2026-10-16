@@ -222,7 +222,12 @@ function Remove-TreeEntry {
     param([string]$Path)
 
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-    if ($item.PSIsContainer -and ($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    if ($item.PSIsContainer) {
+        # Never recursive: a folder that gained entries after the walk fails
+        # here, where Remove-Item without -Recurse would offer to delete them.
+        if ($item.Attributes -band [System.IO.FileAttributes]::ReadOnly) {
+            $item.Attributes = $item.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly)
+        }
         [System.IO.Directory]::Delete($item.FullName, $false)
     }
     else {

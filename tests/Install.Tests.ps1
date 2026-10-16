@@ -49,6 +49,19 @@ Describe "install.ps1 -Uninstall" {
         $env:USERPROFILE = $script:USERPROFILE_SAVED
     }
 
+    It "Never removes a config folder recursively when it gained an entry after the listing" {
+        $dir = Join-Path $TestDrive ("config-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $dir "late.txt") -Value "x"
+        $item = Get-Item -LiteralPath $dir -Force
+        Mock Get-ChildItem { @() }
+        Mock Remove-Item {} -ParameterFilter { Test-Path -LiteralPath $LiteralPath -PathType Container }
+
+        { Remove-MoleConfigEntry -Item $item } | Should -Throw
+        Should -Invoke Remove-Item -Times 0 -Exactly -ParameterFilter { Test-Path -LiteralPath $LiteralPath -PathType Container }
+        Test-Path -LiteralPath (Join-Path $dir "late.txt") | Should -BeTrue
+    }
+
     It "Keeps the Mole for Windows app's files when the CLI shares its folder" {
         $shared = Join-Path $env:LOCALAPPDATA "Mole"
         New-CliTree -Root $shared

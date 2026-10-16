@@ -776,6 +776,13 @@ function Remove-MoleConfigEntry {
         foreach ($child in @(Get-ChildItem -LiteralPath $Item.FullName -Force -ErrorAction Stop)) {
             Remove-MoleConfigEntry -Item $child
         }
+        # Never recursive: an entry added since the listing fails the removal
+        # instead of Remove-Item offering to delete it.
+        if ($Item.Attributes -band [System.IO.FileAttributes]::ReadOnly) {
+            $Item.Attributes = $Item.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly)
+        }
+        [System.IO.Directory]::Delete($Item.FullName, $false)
+        return
     }
     Remove-Item -LiteralPath $Item.FullName -Force -ErrorAction Stop
 }

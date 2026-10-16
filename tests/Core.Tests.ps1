@@ -318,6 +318,28 @@ Describe "File Operations Module" {
             $lines.Count | Should -Be 2
         }
 
+        It "Never deletes a folder recursively when it gained entries after the walk" {
+            $dir = Join-Path $script:TestDir ("grown-" + [guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $dir "late.txt") -Value "x"
+            # Remove-Item without -Recurse prompts to delete these children; the
+            # canary stands in for a user answering Yes.
+            Mock Remove-Item {} -ParameterFilter { Test-Path -LiteralPath $LiteralPath -PathType Container }
+
+            { Remove-TreeEntry -Path $dir } | Should -Throw
+            Should -Invoke Remove-Item -Times 0 -Exactly -ParameterFilter { Test-Path -LiteralPath $LiteralPath -PathType Container }
+            Test-Path -LiteralPath (Join-Path $dir "late.txt") | Should -BeTrue
+        }
+
+        It "Removes an empty read-only folder" {
+            $dir = Join-Path $script:TestDir ("readonly-" + [guid]::NewGuid().ToString("N"))
+            $folder = New-Item -ItemType Directory -Path $dir -Force
+            $folder.Attributes = $folder.Attributes -bor [System.IO.FileAttributes]::ReadOnly
+
+            Remove-TreeEntry -Path $dir
+            Test-Path -LiteralPath $dir | Should -BeFalse
+        }
+
         It "Records how far a partial folder removal got" {
             $dir = Join-Path $script:TestDir ("partial-" + [guid]::NewGuid().ToString("N"))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
