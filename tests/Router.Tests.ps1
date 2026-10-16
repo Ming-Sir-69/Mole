@@ -218,3 +218,21 @@ Describe "Debug through installed launcher call shapes" {
         }
     }
 }
+
+Describe "Analyze debug routing" {
+    It "Accepts the shared debug option and starts a session before Analyze help" {
+        $profile = Join-Path $TestDrive "analyze-debug"
+        New-Item -ItemType Directory -Path $profile -Force | Out-Null
+        $previous = $env:USERPROFILE
+        try {
+            $env:USERPROFILE = $profile
+            $mole = Join-Path $script:WindowsDir 'mole.ps1'
+            $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mole analyze --help --debug 2>&1 | Out-String
+            $LASTEXITCODE | Should -Be 0
+            $output | Should -Match 'Interactive disk space analyzer'
+            $log = Join-Path $profile '.config\mole\mole_debug_session.log'
+            [System.IO.File]::ReadAllText($log) | Should -Match 'Command: mo analyze .*--debug'
+        }
+        finally { $env:USERPROFILE = $previous }
+    }
+}

@@ -8,7 +8,10 @@ param(
     [string]$Path,
     
     [Alias('h')]
-    [switch]$ShowHelp
+    [switch]$ShowHelp,
+
+    [Alias('d')]
+    [switch]$DebugMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -58,6 +61,9 @@ if (-not $binPath) {
     exit 1
 }
 
+$previousDebug = $env:MOLE_DEBUG
+if ($DebugMode) { $env:MOLE_DEBUG = "1" }
+
 # Pass the path for this run only: without one the analyzer opens the overview,
 # so a path left in the session by an earlier run must not leak into the next.
 $previousPath = $env:MO_ANALYZE_PATH
@@ -67,6 +73,7 @@ try {
 }
 finally {
     $env:MO_ANALYZE_PATH = $previousPath
+    $env:MOLE_DEBUG = $previousDebug
 }
 
 # Explicitly propagate native failures through powershell.exe -File as well

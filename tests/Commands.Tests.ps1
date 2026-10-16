@@ -24,34 +24,42 @@ Describe "Clean Command" {
     }
     
     Context "Dry Run Mode" {
-        It "Should support -DryRun parameter" {
-            # Just verify it starts without immediate error
-            $job = Start-Job -ScriptBlock {
-                param($binDir)
-                & powershell -ExecutionPolicy Bypass -File "$binDir\clean.ps1" -DryRun 2>&1
-            } -ArgumentList $script:BinDir
-            
-            Start-Sleep -Seconds 3
-            Stop-Job $job -ErrorAction SilentlyContinue
-            Remove-Job $job -Force -ErrorAction SilentlyContinue
-            
-            # If we got here without exception, test passes
-            $true | Should -Be $true
+        It "Completes a real dry run without deleting its candidate" {
+            $profile = Join-Path $TestDrive "clean-profile"
+            $temp = Join-Path $profile "AppData\Local\Temp"
+            New-Item -ItemType Directory -Path $temp -Force | Out-Null
+            $canary = Join-Path $temp "keep.tmp"
+            Set-Content -LiteralPath $canary -Value "preview canary"
+            (Get-Item -LiteralPath $canary).LastWriteTime = (Get-Date).AddDays(-30)
+            $start = New-Object System.Diagnostics.ProcessStartInfo
+            $start.FileName = (Get-Command powershell.exe -CommandType Application | Select-Object -First 1).Source
+            $start.Arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + (Join-Path $script:BinDir 'clean.ps1') + '" -DryRun'
+            $start.UseShellExecute = $false
+            $start.CreateNoWindow = $true
+            $start.RedirectStandardOutput = $true
+            $start.RedirectStandardError = $true
+            $start.EnvironmentVariables['USERPROFILE'] = $profile
+            $start.EnvironmentVariables['LOCALAPPDATA'] = (Join-Path $profile 'AppData\Local')
+            $start.EnvironmentVariables['APPDATA'] = (Join-Path $profile 'AppData\Roaming')
+            foreach ($name in @('TEMP', 'TMP', 'SystemTemp')) { $start.EnvironmentVariables[$name] = $temp }
+            $process = [System.Diagnostics.Process]::Start($start)
+            try {
+                $stdout = $process.StandardOutput.ReadToEndAsync()
+                $stderr = $process.StandardError.ReadToEndAsync()
+                $process.WaitForExit(60000) | Should -BeTrue
+                $process.ExitCode | Should -Be 0
+                $output = $stdout.Result
+                $output | Should -Match 'Dry run complete - no changes made'
+                $output | Should -Not -Match $script:VisualDefaultsErrorPattern
+                $stderr.Result | Should -BeNullOrEmpty
+                Get-Content -LiteralPath $canary | Should -Be 'preview canary'
+            }
+            finally {
+                if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
+                $process.Dispose()
+            }
         }
 
-        It "Should not throw missing Solid property errors during dry-run startup" {
-            $job = Start-Job -ScriptBlock {
-                param($binDir)
-                & powershell -ExecutionPolicy Bypass -File "$binDir\clean.ps1" -DryRun 2>&1
-            } -ArgumentList $script:BinDir
-
-            Start-Sleep -Seconds 3
-            $output = (Receive-Job $job -Keep 2>&1 | Out-String)
-            Stop-Job $job -ErrorAction SilentlyContinue
-            Remove-Job $job -Force -ErrorAction SilentlyContinue
-
-            $output | Should -Not -Match $script:VisualDefaultsErrorPattern
-        }
     }
 }
 
@@ -354,20 +362,29 @@ Describe "Main Entry Point" {
             $output | Should -Match "Mole|v\d+\.\d+"
         }
 
-        It "Should not throw missing Solid property errors during menu startup" {
+        It "Renders the full menu before waiting for input" {
             $job = Start-Job -ScriptBlock {
                 param($molePath)
-                & powershell -ExecutionPolicy Bypass -File $molePath 2>&1
+                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $molePath 2>&1
             } -ArgumentList $script:MolePath
-
-            Start-Sleep -Seconds 3
-            $output = (Receive-Job $job -Keep 2>&1 | Out-String)
-            Stop-Job $job -ErrorAction SilentlyContinue
-            Remove-Job $job -Force -ErrorAction SilentlyContinue
-
-            $output | Should -Not -Match $script:VisualDefaultsErrorPattern
+            try {
+                $deadline = (Get-Date).AddSeconds(15)
+                $output = ''
+                do {
+                    $output = Receive-Job $job -Keep 2>&1 | Out-String
+                    if ($output -match 'Q Quit' -or $job.State -in @('Completed', 'Failed')) { break }
+                    Start-Sleep -Milliseconds 100
+                } while ((Get-Date) -lt $deadline)
+                $output | Should -Match 'Q Quit'
+                $output | Should -Match 'Free up disk space'
+                $output | Should -Not -Match $script:VisualDefaultsErrorPattern
+            }
+            finally {
+                Stop-Job $job -ErrorAction SilentlyContinue
+                Remove-Job $job -Force -ErrorAction SilentlyContinue
+            }
         }
-        
+
         It "Should list available commands in help" {
             $result = & powershell -ExecutionPolicy Bypass -File $script:MolePath -ShowHelp 2>&1
             $helpText = $result -join "`n"

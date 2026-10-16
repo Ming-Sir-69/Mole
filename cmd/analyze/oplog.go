@@ -98,6 +98,7 @@ func writeOperation(action, path, detail string) {
 	text := operationLine(now, label, action, path, detail) + "\r\n"
 	if !operationsLogStarted {
 		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			debugOperationFailure(file, err)
 			return
 		}
 		if info, err := os.Stat(file); err == nil && info.Size() > operationsLogMaxBytes {
@@ -114,10 +115,28 @@ func writeOperation(action, path, detail string) {
 			return
 		}
 		if attempt >= operationsLogAttempts || errors.Is(err, os.ErrPermission) {
+			debugOperationFailure(file, err)
 			return
 		}
 		time.Sleep(time.Duration(attempt) * operationsLogRetryDelay)
 	}
+}
+
+// Keep normal TUI output quiet; explicit debug mode shares the shell's session log.
+func debugOperationFailure(file string, err error) {
+	if os.Getenv("MOLE_DEBUG") != "1" {
+		return
+	}
+	line := fmt.Sprintf("%s [DEBUG] operations.log not written: %s: %s\r\n", operationsLogNow().Format("15:04:05"), logValue(file), logValue(err.Error()))
+	logRoot := defaultOperationsLogPath()
+	if logRoot != "" {
+		debugFile := filepath.Join(filepath.Dir(logRoot), "mole_debug_session.log")
+		if appendOperationText(debugFile, line) == nil {
+			return
+		}
+	}
+	// Debug diagnostics still have an outlet when the entire log directory is unavailable.
+	_, _ = fmt.Fprint(os.Stderr, line)
 }
 
 func appendOperationText(file, text string) error {

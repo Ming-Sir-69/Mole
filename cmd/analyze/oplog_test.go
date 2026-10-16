@@ -125,3 +125,40 @@ func TestRecyclePathWithProgressRecordsTheOutcome(t *testing.T) {
 		t.Fatalf("a path that was never there was recorded:\n%s", log)
 	}
 }
+
+func TestOperationLogFailureReachesDebugSession(t *testing.T) {
+	file := useTestOperationsLog(t)
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("MOLE_DEBUG", "1")
+	debugFile := filepath.Join(home, ".config", "mole", "mole_debug_session.log")
+	if err := os.MkdirAll(filepath.Dir(debugFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// An existing directory cannot be opened as an append-only operation log.
+	if err := os.MkdirAll(file, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeOperation("RECYCLED", "fixture", "")
+	text := readLog(t, debugFile)
+	if !strings.Contains(text, "[DEBUG] operations.log not written:") || !strings.Contains(text, file) {
+		t.Fatalf("missing actionable debug record: %q", text)
+	}
+	if operationsLogStarted {
+		t.Fatal("failed append marked the session started")
+	}
+}
+
+func TestOperationLogFailureStaysQuietWithoutDebug(t *testing.T) {
+	file := useTestOperationsLog(t)
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("MOLE_DEBUG", "")
+	if err := os.MkdirAll(file, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeOperation("RECYCLED", "fixture", "")
+	if _, err := os.Stat(filepath.Join(home, ".config", "mole", "mole_debug_session.log")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected debug log: %v", err)
+	}
+}
