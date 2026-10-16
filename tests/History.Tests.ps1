@@ -23,6 +23,7 @@ Describe "mo history log reader" {
             "# ========== clean run=a1 session started at 2026-10-15 10:00:00 ==========",
             "[2026-10-15 10:00:01] [clean run=a1] REMOVED C:\Temp\one (1.0KB)",
             "[2026-10-15 10:00:02] [clean run=a1] FAILED C:\Temp\two (access denied)",
+            "[2026-10-15 10:00:03] [clean run=a1] SKIPPED C:\Temp\three (refused: protected or whitelisted entry inside: C:\Temp\three\keep)",
             "",
             "# ========== uninstall run=b2 session started at 2026-10-15 11:00:00 ==========",
             "[2026-10-15 11:00:01] [uninstall run=b2] UNINSTALLED Fixture App (exit code 0)",
@@ -35,11 +36,13 @@ Describe "mo history log reader" {
         $history.Sessions[0].run_id | Should -Be "a1"
         $history.Sessions[0].actions.removed | Should -Be 1
         $history.Sessions[0].actions.failed | Should -Be 1
+        $history.Sessions[0].actions.skipped | Should -Be 1
+        $history.Sessions[0].actions.other | Should -Be 0
         $history.Sessions[1].actions.uninstalled | Should -Be 1
         $history.Sessions[1].actions.recycled | Should -Be 1
-        @($history.Operations).Count | Should -Be 4
-        $history.Operations[3].path | Should -BeExactly "C:\Program Files (x86)\Fixture App"
-        $history.Operations[3].detail | Should -BeExactly "2.0MB"
+        @($history.Operations).Count | Should -Be 5
+        $history.Operations[4].path | Should -BeExactly "C:\Program Files (x86)\Fixture App"
+        $history.Operations[4].detail | Should -BeExactly "2.0MB"
     }
 
     It "Reads back what the writer recorded, parentheses included" {

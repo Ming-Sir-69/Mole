@@ -571,7 +571,7 @@ function Remove-SafeItem {
         $validatedTree = Get-SafeDirectoryTreeItems -Path $Path
         if (-not $validatedTree.Success) {
             if (-not $script:MoleDryRunMode) {
-                Write-MoleOperation -Action "FAILED" -Path $Path -Detail "refused: $($validatedTree['Reason'])"
+                Write-MoleOperation -Action "SKIPPED" -Path $Path -Detail "refused: $($validatedTree['Reason'])"
             }
             return $false
         }
@@ -678,7 +678,7 @@ function Remove-SafeItems {
             if (-not $validatedTree.Success) {
                 $failedCount++
                 if (-not $script:MoleDryRunMode) {
-                    Write-MoleOperation -Action "FAILED" -Path $path -Detail "refused: $($validatedTree['Reason'])"
+                    Write-MoleOperation -Action "SKIPPED" -Path $path -Detail "refused: $($validatedTree['Reason'])"
                 }
                 continue
             }

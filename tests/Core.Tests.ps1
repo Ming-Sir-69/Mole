@@ -314,7 +314,7 @@ Describe "File Operations Module" {
             Remove-SafeItem -Path $dir -Recurse | Should -Be $false
             Remove-SafeItems -Paths @($dir) -Description "Refused"
 
-            $lines = @(Get-Content -LiteralPath $script:MoleOperationsLogFile | Where-Object { $_.Contains("FAILED $dir (refused: protected or whitelisted entry inside: C:\x\keep)") })
+            $lines = @(Get-Content -LiteralPath $script:MoleOperationsLogFile | Where-Object { $_.Contains("SKIPPED $dir (refused: protected or whitelisted entry inside: C:\x\keep)") })
             $lines.Count | Should -Be 2
         }
 
