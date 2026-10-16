@@ -289,9 +289,23 @@ function Initialize-MoleSpinner {
     Add-Type -TypeDefinition @'
 using System;
 using System.Threading;
+using System.Runtime.InteropServices;
 namespace Mole {
     public static class TerminalSpinner {
         static readonly object Gate = new object();
+        static readonly System.IO.TextWriter OriginalOutput = Console.Out;
+        [DllImport("kernel32.dll")]
+        static extern IntPtr GetStdHandle(int name);
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+        static extern bool WriteConsoleW(IntPtr handle, string value, uint length, out uint written, IntPtr reserved);
+        static void Write(string value) {
+            // Console.Write encodes Braille as '?' on legacy code pages. Keep
+            // Unicode at the console boundary without changing the shared code page.
+            uint written;
+            if (Object.ReferenceEquals(Console.Out, OriginalOutput) &&
+                WriteConsoleW(GetStdHandle(-11), value, (uint)value.Length, out written, IntPtr.Zero)) return;
+            Console.Write(value); // Redirected handles and explicit Console.SetOut writers.
+        }
         static readonly char[] Frames = { '\u2816', '\u2832', '\u2834', '\u2826' };
         static Timer timer;
         static string text;
@@ -313,7 +327,7 @@ namespace Mole {
                     try { columns = Console.WindowWidth; } catch (System.IO.IOException) { }
                     int width = Math.Max(1, columns - 5);
                     string label = text.Length > width ? text.Substring(0, width) : text;
-                    Console.Write("\r\x1b[2K  \x1b[34m" + Frames[frame++ % Frames.Length] + "\x1b[0m " + label);
+                    Write("\r\x1b[2K  \x1b[34m" + Frames[frame++ % Frames.Length] + "\x1b[0m " + label);
                     drawn = true;
                 } catch { /* Losing a terminal must not interrupt maintenance. */ }
             }
@@ -322,7 +336,7 @@ namespace Mole {
             lock (Gate) {
                 if (timer != null) { timer.Dispose(); timer = null; }
                 if (drawn) {
-                    try { Console.Write("\r\x1b[2K"); } catch { }
+                    try { Write("\r\x1b[2K"); } catch { }
                     drawn = false;
                 }
             }

@@ -52,6 +52,61 @@ Describe 'Terminal presentation' {
 }
 
 Describe 'Background loading lifecycle' {
+    It 'writes Unicode frames directly to a console buffer regardless of its legacy code page' {
+        Initialize-MoleSpinner
+        if (-not ('Mole.SpinnerConsoleFixture' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace Mole {
+    public static class SpinnerConsoleFixture {
+        [DllImport("kernel32.dll", SetLastError=true)]
+        public static extern IntPtr CreateConsoleScreenBuffer(uint access, uint share, IntPtr security, uint flags, IntPtr data);
+        [DllImport("kernel32.dll")]
+        public static extern IntPtr GetStdHandle(int name);
+        [DllImport("kernel32.dll")]
+        public static extern bool SetStdHandle(int name, IntPtr handle);
+        [DllImport("kernel32.dll", CharSet=CharSet.Unicode)]
+        public static extern bool ReadConsoleOutputCharacterW(IntPtr handle, StringBuilder text, uint length, uint position, out uint read);
+        [DllImport("kernel32.dll")]
+        public static extern bool CloseHandle(IntPtr handle);
+        [DllImport("kernel32.dll")]
+        public static extern bool AllocConsole();
+        [DllImport("kernel32.dll")]
+        public static extern bool FreeConsole();
+    }
+}
+'@
+        }
+        $original = [Mole.SpinnerConsoleFixture]::GetStdHandle(-11)
+        $buffer = [Mole.SpinnerConsoleFixture]::CreateConsoleScreenBuffer(3221225472, 3, [IntPtr]::Zero, 1, [IntPtr]::Zero)
+        $ownedConsole = $false
+        try {
+            if ($buffer -eq [IntPtr](-1)) {
+                # Headless CI may have no console. Own and release only this fixture's console.
+                $ownedConsole = [Mole.SpinnerConsoleFixture]::AllocConsole()
+                $ownedConsole | Should -BeTrue
+                $buffer = [Mole.SpinnerConsoleFixture]::CreateConsoleScreenBuffer(3221225472, 3, [IntPtr]::Zero, 1, [IntPtr]::Zero)
+            }
+            $buffer | Should -Not -Be ([IntPtr](-1))
+            [Mole.SpinnerConsoleFixture]::SetStdHandle(-11, $buffer) | Should -BeTrue
+            [Mole.TerminalSpinner]::Start('Scanning')
+            Start-Sleep -Milliseconds 250
+            $text = New-Object System.Text.StringBuilder 256
+            [uint32]$read = 0
+            [Mole.SpinnerConsoleFixture]::ReadConsoleOutputCharacterW($buffer, $text, 256, 0, [ref]$read) | Should -BeTrue
+            $text.ToString() | Should -Match ('[' + [char]0x2816 + [char]0x2832 + [char]0x2834 + [char]0x2826 + ']')
+            $text.ToString() | Should -Match 'Scanning'
+        }
+        finally {
+            [Mole.TerminalSpinner]::Stop()
+            if ($buffer -ne [IntPtr](-1)) { [void][Mole.SpinnerConsoleFixture]::CloseHandle($buffer) }
+            if ($ownedConsole) { [void][Mole.SpinnerConsoleFixture]::FreeConsole() }
+            [void][Mole.SpinnerConsoleFixture]::SetStdHandle(-11, $original)
+        }
+    }
+
     It 'animates while the calling thread waits and stops before returning' {
         Initialize-MoleSpinner
         $original = [Console]::Out
