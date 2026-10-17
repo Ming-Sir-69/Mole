@@ -13,4 +13,7 @@ you publish a fork, please:
 Mole for Mac at https://mole.fit is a separate, proprietary product with its own
 reserved name and assets.
 
+Mole for Windows at https://mole.fit/windows is a separate, proprietary product
+with its own reserved name and assets.
+
 Permission requests: open an issue or reach out via https://mole.fit.

@@ -98,8 +98,8 @@ Füge `-CreateShortcut` für einen Eintrag im Startmenü hinzu. Zum Deinstallier
 
 Mole kann Dateien löschen. Deshalb prüft es Pfade und schützt System- und Profilordner. `uninstall`, `purge` und `remove` fragen vor jedem Entfernen nach einer Bestätigung. Kann Mole nicht belegen, dass eine Änderung sicher ist, überspringt es sie.
 
-- `clean`, `uninstall`, `purge` und `remove` löschen Dateien, überprüfe sie also zuerst mit `--dry-run` und bei Bedarf mit `--debug`
-- `clean`, `uninstall` und `purge` löschen endgültig; Dateien, die in `mo analyze` gelöscht werden, landen im Papierkorb
+- `clean`, `uninstall` und `purge` löschen Dateien, überprüfe sie also zuerst mit `--dry-run` und bei Bedarf mit `--debug`
+- `clean` und `purge` löschen endgültig; verifizierte `uninstall`-Reste landen im Papierkorb, der Uninstaller der App behält sein eigenes Verhalten, und in `mo analyze` gelöschte Dateien landen ebenfalls im Papierkorb
 - Führe Mole als normaler Benutzer aus; Systemschritte werden übersprungen, sofern PowerShell nicht als Administrator läuft
 - Schütze Pfade mit `mo clean --whitelist`
 - Bereinigungsaktivitäten werden in `%USERPROFILE%\.config\mole\operations.log` protokolliert; überprüfe sie mit `mo history` oder deaktiviere das Logging mit `MO_NO_OPLOG=1`
