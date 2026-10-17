@@ -223,10 +223,10 @@ if (-not (Test-Path $gitDir)) {
         Write-Host "Update it with: $upgradeCommand" -ForegroundColor Yellow
         exit 1
     }
-    Write-Host "This installation is not a git-based source install." -ForegroundColor Red
-    Write-Host "Only a source install can run 'mo update'. Remove or rename $windowsDir, then install a fresh copy:" -ForegroundColor Yellow
+    Write-Host "This copy is not a git-based source install, so 'mo update' cannot update it in place." -ForegroundColor Red
+    Write-Host "To replace it, remove or rename $windowsDir, then run:" -ForegroundColor Yellow
     Write-Host "  irm https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex" -ForegroundColor Yellow
-    Write-Host "A release ZIP works too: run its install.ps1 with a new -InstallDir and -AddToPath." -ForegroundColor Yellow
+    Write-Host "A release ZIP also works: run its install.ps1 with a new -InstallDir and -AddToPath." -ForegroundColor Yellow
     exit 1
 }
 

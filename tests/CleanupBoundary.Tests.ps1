@@ -40,6 +40,19 @@ Describe 'Cleanup physical boundaries' {
         Remove-SafeItem -Path (Join-Path $link 'keep.txt') | Should -BeFalse
         Test-Path -LiteralPath $sentinel | Should -BeTrue
     }
+    It 'Treats a junction into a protected tree as protected' {
+        $link = Join-Path $script:Root 'windows-link'
+        New-Item -ItemType Junction -Path $link -Target $env:SystemRoot | Out-Null
+        Test-ProtectedPath -Path (Join-Path $link 'System32') | Should -BeTrue
+    }
+    It 'Retains every candidate when a bounded cache scan times out' {
+        $bounded = Join-Path $script:Root 'bounded'
+        New-Item -ItemType Directory -Path $bounded | Out-Null
+        Set-Content -LiteralPath (Join-Path $bounded 'a.lastUpdated') -Value 'x'
+        $scan = Get-FilesWithinBudget -Root $bounded -Filter '*.lastUpdated' -TimeoutSeconds 0
+        $scan.Complete | Should -BeFalse
+        @($scan.Files).Count | Should -Be 0
+    }
     It 'Keeps an old file reached through a junction cleanup root' {
         $target = Join-Path $script:Root 'target'
         New-Item -ItemType Directory -Path $target | Out-Null
@@ -205,6 +218,26 @@ Describe 'Whitelist state matches the per-pattern rule' {
         # The comparison must have both outcomes, or it proves nothing.
         @($paths | Where-Object { Test-Whitelisted -Path $_ -State $state }).Count | Should -BeGreaterThan 5
         @($paths | Where-Object { -not (Test-Whitelisted -Path $_ -State $state) }).Count | Should -BeGreaterThan 3
+    }
+}
+
+Describe 'Whitelisted junction roots' {
+    BeforeEach {
+        $script:SavedWhitelist = $script:Config.WhitelistFile
+        $script:Config.WhitelistFile = Join-Path $TestDrive 'junction-whitelist.txt'
+    }
+    AfterEach { $script:Config.WhitelistFile = $script:SavedWhitelist }
+    It 'Keeps a child of a whitelisted junction by original and final spelling' {
+        $target = Join-Path $TestDrive ('cargo-target-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $target | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'registry') -Value 'x'
+        $link = Join-Path $TestDrive ('cargo-link-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+        Set-Content -LiteralPath $script:Config.WhitelistFile -Value $link
+        Test-SafePath -Path (Join-Path $link 'registry') | Should -BeFalse
+        $state = Get-WhitelistState
+        Test-Whitelisted -Path (Join-Path $target 'registry') -State $state | Should -BeTrue
+        Test-Whitelisted -Path (Join-Path $link 'registry') -State $state | Should -BeTrue
     }
 }
 

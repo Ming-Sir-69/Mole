@@ -599,7 +599,22 @@ function Get-WhitelistState {
         $root = $pattern.TrimEnd('\')
         $roots.Add($root)
         $prefixes.Add($root + '\')
-        $wild.Add($pattern.IndexOfAny([char[]]@('*', '?', '[', '`')) -ge 0)
+        $hasWildcard = $pattern.IndexOfAny([char[]]@('*', '?', '[', '`')) -ge 0
+        $wild.Add($hasWildcard)
+        # A whitelist root that is itself a junction points at a different
+        # final spelling. Keep both, so the resolved candidate matches the
+        # protection the user wrote for the root.
+        if (-not $hasWildcard) {
+            $info = Resolve-MoleExistingPathInfo -Path $root
+            if ($info.Exists -and $info.Path) {
+                $canonical = $info.Path.TrimEnd('\')
+                if (-not [string]::Equals($canonical, $root, [StringComparison]::OrdinalIgnoreCase)) {
+                    $roots.Add($canonical)
+                    $prefixes.Add($canonical + '\')
+                    $wild.Add($false)
+                }
+            }
+        }
     }
     return @{
         RetainAll = $retainAll

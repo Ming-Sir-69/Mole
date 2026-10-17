@@ -116,6 +116,9 @@ if (($null -eq $uninstallExit -or $uninstallExit -eq 0) -and
             if ($cacheRoot.PSIsContainer -and
                 -not ($cacheRoot.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
                 Remove-MoleCacheEntry -Item $cacheRoot
+                if (Get-Command Write-MoleOperation -ErrorAction SilentlyContinue) {
+                    Write-MoleOperation -Action "REMOVED" -Path $cachePath -Detail "cache"
+                }
                 Write-Host "  Removed Mole cache: $cachePath" -ForegroundColor Gray
             }
         }

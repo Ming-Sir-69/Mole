@@ -124,6 +124,18 @@ function Test-SafePath {
         return $false
     }
     
+    # The typed path and the resolved target are both candidates for the
+    # whitelist: a whitelisted root can itself be a junction, in which case the
+    # resolved target is outside the typed root and only the original spelling
+    # matches. Check either spelling, never only the resolved one.
+    $lexicalPath = $null
+    try { $lexicalPath = [System.IO.Path]::GetFullPath($Path) } catch { }
+    if ($null -eq $WhitelistState) { $WhitelistState = Get-WhitelistState }
+    if ($lexicalPath -and (Test-Whitelisted -Path $lexicalPath -State $WhitelistState)) {
+        Write-Debug "Whitelisted path rejected: $lexicalPath"
+        return $false
+    }
+
     # Resolve to full path
     $fullPath = Resolve-SafePath -Path $Path
     if (-not $fullPath) {

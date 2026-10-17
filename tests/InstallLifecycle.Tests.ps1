@@ -241,6 +241,23 @@ $global:LASTEXITCODE = 1
         Test-Path -LiteralPath (Join-Path $script:RemoveRoot 'mole.ps1') | Should -BeFalse
         Test-Path -LiteralPath (Join-Path $script:RemoveHome '.cache\mole') | Should -BeFalse
     }
+    It 'Records the cache removal in the operation log' {
+        $env:MOLE_TEST_UNINSTALL_EXIT = '0'
+        Mock Read-Host { 'y' }
+        $global:RemoveOps = @()
+        function global:Write-MoleOperation {
+            param($Action, $Path, $Detail)
+            $global:RemoveOps += "$Action $Path $Detail"
+        }
+        try {
+            & (Join-Path $script:RemoveBin 'remove.ps1')
+        }
+        finally {
+            Remove-Item function:global:Write-MoleOperation -ErrorAction SilentlyContinue
+        }
+        ($global:RemoveOps -join "`n") | Should -Match 'REMOVED'
+        ($global:RemoveOps -join "`n") | Should -Match 'cache'
+    }
     It 'Keeps the Mole cache when the uninstall does not complete' {
         $env:MOLE_TEST_UNINSTALL_EXIT = '1'
         Mock Read-Host { 'y' }
