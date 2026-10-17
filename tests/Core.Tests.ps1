@@ -241,6 +241,18 @@ Describe "File Operations Module" {
                 Should -Be ([System.IO.Path]::GetFullPath($env:ProgramFiles))
         }
 
+        It "Should protect a path reached through a junction into a protected tree" {
+            $link = Join-Path $TestDrive ("win-link-" + [guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Junction -Path $link -Target $env:SystemRoot | Out-Null
+            try {
+                Test-ProtectedPath -Path (Join-Path $link "System32") | Should -Be $true
+            }
+            finally {
+                if (Test-Path -LiteralPath $link) {
+                    [System.IO.Directory]::Delete($link, $false)
+                }
+            }
+        }
         It "Should not protect temp directories" {
             Test-ProtectedPath -Path $env:TEMP | Should -Be $false
         }
