@@ -526,8 +526,8 @@ function Test-ProtectedPath {
         return $true
     }
 
-    # Callers that already resolved the final path (Test-SafePath) do not pay
-    # for a second handle probe.
+    # Test-SafePath judges the typed spelling and its resolved final path
+    # separately, so neither call needs a second handle probe here.
     if ($AlreadyResolved) { return $false }
 
     # Existing aliases (8.3 short names, trailing-dot spellings, reparse

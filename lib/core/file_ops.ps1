@@ -124,37 +124,36 @@ function Test-SafePath {
         return $false
     }
     
-    # The typed path and the resolved target are both candidates for the
-    # whitelist: a whitelisted root can itself be a junction, in which case the
-    # resolved target is outside the typed root and only the original spelling
-    # matches. Check either spelling, never only the resolved one.
-    $lexicalPath = $null
-    try { $lexicalPath = [System.IO.Path]::GetFullPath($Path) } catch { }
-    if ($null -eq $WhitelistState) { $WhitelistState = Get-WhitelistState }
-    if ($lexicalPath -and (Test-Whitelisted -Path $lexicalPath -State $WhitelistState)) {
-        Write-Debug "Whitelisted path rejected: $lexicalPath"
-        return $false
-    }
-
-    # Resolve to full path
+    # Judge the typed spelling and its resolved final path. They differ when a
+    # junction, symbolic link, 8.3 name or trailing-dot alias is on the way: a
+    # whitelisted root can itself be a junction, so only the typed spelling
+    # matches it, and a linked `Microsoft\Credentials` or `.ssh` folder resolves
+    # to a target without that segment. Identical spellings, the common case
+    # for a cleanup walk, are checked once.
     $fullPath = Resolve-SafePath -Path $Path
     if (-not $fullPath) {
         Write-Debug "Could not resolve path: $Path"
         return $false
     }
-    
-    # Check protected paths
-    if (Test-ProtectedPath -Path $fullPath -AlreadyResolved) {
-        Write-Debug "Protected path rejected: $fullPath"
-        return $false
+    $spellings = @($fullPath)
+    $lexicalPath = $null
+    try { $lexicalPath = [System.IO.Path]::GetFullPath($Path) } catch { }
+    if ($lexicalPath -and -not [string]::Equals($lexicalPath.TrimEnd('\'), $fullPath.TrimEnd('\'),
+            [StringComparison]::OrdinalIgnoreCase)) {
+        $spellings = @($lexicalPath, $fullPath)
     }
-    
-    # Check whitelist
-    if (Test-Whitelisted -Path $fullPath -State $WhitelistState) {
-        Write-Debug "Whitelisted path rejected: $fullPath"
-        return $false
+    if ($null -eq $WhitelistState) { $WhitelistState = Get-WhitelistState }
+    foreach ($spelling in $spellings) {
+        if (Test-ProtectedPath -Path $spelling -AlreadyResolved) {
+            Write-Debug "Protected path rejected: $spelling"
+            return $false
+        }
+        if (Test-Whitelisted -Path $spelling -State $WhitelistState) {
+            Write-Debug "Whitelisted path rejected: $spelling"
+            return $false
+        }
     }
-    
+
     return $true
 }
 

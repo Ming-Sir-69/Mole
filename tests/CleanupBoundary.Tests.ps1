@@ -236,6 +236,30 @@ Describe 'Whitelisted junction roots' {
     }
 }
 
+Describe 'Linked protected segments' {
+    BeforeEach {
+        $script:SavedWhitelist = $script:Config.WhitelistFile
+        $script:Config.WhitelistFile = Join-Path $TestDrive 'segment-whitelist.txt'
+    }
+    AfterEach { $script:Config.WhitelistFile = $script:SavedWhitelist }
+    It 'Refuses a child of a protected segment that is a junction elsewhere' {
+        $target = Join-Path $TestDrive ('cred-target-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $target | Out-Null
+        Set-Content -LiteralPath (Join-Path $target 'blob') -Value 'x'
+        $parent = Join-Path $TestDrive ('profile-' + [guid]::NewGuid().ToString('N') + '\Microsoft')
+        New-Item -ItemType Directory -Path $parent | Out-Null
+        $link = Join-Path $parent 'Credentials'
+        New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+        try {
+            Test-SafePath -Path (Join-Path $link 'blob') | Should -BeFalse
+            Test-SafePath -Path (Join-Path $target 'blob') | Should -BeTrue
+        }
+        finally {
+            [System.IO.Directory]::Delete($link, $false)
+        }
+    }
+}
+
 Describe 'Literal bracket whitelist paths' {
     It 'Protects the exact bracket path and its children without matching siblings' {
         $root = Join-Path $TestDrive '[demo]\cache'
