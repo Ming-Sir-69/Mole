@@ -125,6 +125,73 @@ Describe "Developer Tools Cleanup Module" {
     }
 }
 
+Describe "Bounded developer cache scans" {
+    BeforeEach {
+        $script:SavedDevProfile = $env:USERPROFILE
+        $script:DevHome = Join-Path $TestDrive ("devhome-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path (Join-Path $script:DevHome ".m2\repository\group"), (Join-Path $script:DevHome ".stack\snapshots\pkg") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:DevHome ".m2\repository\group\artifact.jar.lastUpdated") -Value "marker"
+        Set-Content -LiteralPath (Join-Path $script:DevHome ".m2\repository\group\artifact.jar") -Value "kept"
+        Set-Content -LiteralPath (Join-Path $script:DevHome ".stack\snapshots\pkg\download.tmp") -Value "temp"
+        Set-Content -LiteralPath (Join-Path $script:DevHome ".stack\snapshots\pkg\download.tar.gz") -Value "kept"
+        $env:USERPROFILE = $script:DevHome
+        $script:CollectedPaths = New-Object System.Collections.Generic.List[string]
+        Mock Remove-SafeItems {
+            param($Paths, $Description)
+            foreach ($path in @($Paths)) { $script:CollectedPaths.Add($path) }
+        }
+    }
+    AfterEach {
+        $env:USERPROFILE = $script:SavedDevProfile
+    }
+    It "Keeps the Maven and Stack candidate set while bounding each scan" {
+        Clear-JvmCaches
+        Clear-HaskellCaches
+        $script:CollectedPaths | Should -Contain (Join-Path $script:DevHome ".m2\repository\group\artifact.jar.lastUpdated")
+        $script:CollectedPaths | Should -Contain (Join-Path $script:DevHome ".stack\snapshots\pkg\download.tmp")
+        $script:CollectedPaths | Should -Not -Contain (Join-Path $script:DevHome ".m2\repository\group\artifact.jar")
+        $script:CollectedPaths | Should -Not -Contain (Join-Path $script:DevHome ".stack\snapshots\pkg\download.tar.gz")
+    }
+    It "Reports a small tree as completely enumerated" {
+        $scan = Get-FilesWithinBudget -Root (Join-Path $script:DevHome ".m2\repository") -Filter "*.lastUpdated" -TimeoutSeconds 15
+        $scan.Complete | Should -Be $true
+        @($scan.Files).Count | Should -Be 1
+    }
+}
+
+Describe "Game media enumeration" {
+    BeforeEach {
+        $script:SavedMediaProfile = $env:USERPROFILE
+        $script:MediaHome = Join-Path $TestDrive ("mediahome-" + [guid]::NewGuid().ToString("N"))
+        $script:MediaRoot = Join-Path $script:MediaHome "Videos\ShadowPlay"
+        New-Item -ItemType Directory -Path $script:MediaRoot -Force | Out-Null
+        $oldFile = Join-Path $script:MediaRoot "clip.mp4"
+        $oldPhoto = Join-Path $script:MediaRoot "photo.JPG"
+        $keptFile = Join-Path $script:MediaRoot "notes.txt"
+        Set-Content -LiteralPath $oldFile -Value "video"
+        Set-Content -LiteralPath $oldPhoto -Value "photo"
+        Set-Content -LiteralPath $keptFile -Value "notes"
+        foreach ($path in @($oldFile, $oldPhoto, $keptFile)) {
+            (Get-Item -LiteralPath $path).LastWriteTime = (Get-Date).AddDays(-120)
+        }
+        $env:USERPROFILE = $script:MediaHome
+        $script:MediaPaths = New-Object System.Collections.Generic.List[string]
+        Mock Remove-SafeItems {
+            param($Paths, $Description)
+            foreach ($path in @($Paths)) { $script:MediaPaths.Add($path) }
+        }
+    }
+    AfterEach {
+        $env:USERPROFILE = $script:SavedMediaProfile
+    }
+    It "Removes only old media files from each root's single enumeration" {
+        Clear-GameMediaFiles -DaysOld 90
+        $script:MediaPaths | Should -Contain (Join-Path $script:MediaRoot "clip.mp4")
+        $script:MediaPaths | Should -Contain (Join-Path $script:MediaRoot "photo.JPG")
+        $script:MediaPaths | Should -Not -Contain (Join-Path $script:MediaRoot "notes.txt")
+    }
+}
+
 Describe "Apps Cleanup Module" {
     Context "Orphan Detection" {
         It "Should have Find-OrphanedAppData function" {

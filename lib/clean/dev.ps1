@@ -359,6 +359,66 @@ function Clear-RustCaches {
 # Java / JVM Ecosystem
 # ============================================================================
 
+# Enumerate a cache tree under a wall-clock budget. Maven repositories and
+# Stack snapshot trees can hold tens of thousands of files, and one unbounded
+# recursive Get-ChildItem made a cleanup row run for minutes. A tree that was
+# not fully enumerated is unknown, so callers keep every candidate instead of
+# deleting a partial prefix. Links and junctions are never entered.
+function Get-FilesWithinBudget {
+    param(
+        [string]$Root,
+        [string]$Filter,
+        [int]$TimeoutSeconds = 15
+    )
+
+    $result = @{ Files = @(); Complete = $false }
+    if (-not (Test-Path -LiteralPath $Root)) {
+        $result.Complete = $true
+        return $result
+    }
+
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $pending = New-Object System.Collections.Generic.Stack[string]
+    $pending.Push($Root)
+    $files = New-Object System.Collections.Generic.List[string]
+    while ($pending.Count -gt 0) {
+        if ($timer.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+            return $result
+        }
+        $directory = $pending.Pop()
+        try {
+            $entries = @([System.IO.Directory]::GetFileSystemEntries($directory))
+        }
+        catch {
+            # An unreadable directory makes the whole scan incomplete.
+            return $result
+        }
+        foreach ($entry in $entries) {
+            if ($timer.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+                return $result
+            }
+            try {
+                $attributes = [System.IO.File]::GetAttributes($entry)
+            }
+            catch {
+                return $result
+            }
+            if (($attributes -band [System.IO.FileAttributes]::Directory) -ne 0) {
+                if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                    $pending.Push($entry)
+                }
+                continue
+            }
+            if ([System.IO.Path]::GetFileName($entry) -like $Filter) {
+                $files.Add($entry)
+            }
+        }
+    }
+    $result.Files = $files.ToArray()
+    $result.Complete = $true
+    return $result
+}
+
 function Clear-JvmCaches {
     <#
     .SYNOPSIS
@@ -371,10 +431,12 @@ function Clear-JvmCaches {
     # Maven repository (only clean temp files)
     $mavenRepoPath = "$env:USERPROFILE\.m2\repository"
     if (Test-Path $mavenRepoPath) {
-        $tempFiles = Get-ChildItem -Path $mavenRepoPath -Recurse -Filter "*.lastUpdated" -ErrorAction SilentlyContinue
-        if ($tempFiles) {
-            $paths = $tempFiles | ForEach-Object { $_.FullName }
-            Remove-SafeItems -Paths $paths -Description "Maven update markers"
+        $scan = Get-FilesWithinBudget -Root $mavenRepoPath -Filter "*.lastUpdated" -TimeoutSeconds 15
+        if (-not $scan.Complete) {
+            Write-Debug "Maven update-marker scan did not complete within 15s; kept every marker"
+        }
+        elseif ($scan.Files.Count -gt 0) {
+            Remove-SafeItems -Paths $scan.Files -Description "Maven update markers"
         }
     }
 }
@@ -454,10 +516,12 @@ function Clear-HaskellCaches {
     $stackSnapshotsPath = "$env:USERPROFILE\.stack\snapshots"
     if (Test-Path $stackSnapshotsPath) {
         # Only clean temp files
-        $tempFiles = Get-ChildItem -Path $stackSnapshotsPath -Recurse -Filter "*.tmp" -ErrorAction SilentlyContinue
-        if ($tempFiles) {
-            $paths = $tempFiles | ForEach-Object { $_.FullName }
-            Remove-SafeItems -Paths $paths -Description "Stack temp files"
+        $scan = Get-FilesWithinBudget -Root $stackSnapshotsPath -Filter "*.tmp" -TimeoutSeconds 15
+        if (-not $scan.Complete) {
+            Write-Debug "Stack temp-file scan did not complete within 15s; kept every temp file"
+        }
+        elseif ($scan.Files.Count -gt 0) {
+            Remove-SafeItems -Paths $scan.Files -Description "Stack temp files"
         }
     }
 }

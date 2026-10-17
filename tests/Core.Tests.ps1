@@ -195,6 +195,52 @@ Describe "File Operations Module" {
             Test-ProtectedPath -Path "C:\ProgramData\Microsoft\Windows Defender" | Should -Be $true
         }
 
+        It "Should protect the 8.3 short-name spelling of a protected tree" {
+            if (-not (Test-Path -LiteralPath "C:\PROGRA~1")) {
+                Set-ItResult -Skipped -Because "8.3 short names are not created on this volume"
+                return
+            }
+            Test-ProtectedPath -Path "C:\PROGRA~1" | Should -Be $true
+        }
+
+        It "Should protect a final path when the list stores a short-name spelling" {
+            if (-not (Test-Path -LiteralPath "C:\PROGRA~1")) {
+                Set-ItResult -Skipped -Because "8.3 short names are not created on this volume"
+                return
+            }
+            $savedProtectedPaths = $script:ProtectedPaths
+            try {
+                $script:ProtectedPaths = @("C:\PROGRA~1")
+                Test-ProtectedPath -Path ([System.IO.Path]::GetFullPath($env:ProgramFiles)) | Should -Be $true
+            }
+            finally {
+                $script:ProtectedPaths = $savedProtectedPaths
+            }
+        }
+
+        It "Should protect a trailing-dot alias of a protected tree" {
+            $alias = $env:SystemRoot + ".\System32"
+            if (-not (Test-Path -LiteralPath $alias)) {
+                Set-ItResult -Skipped -Because "the trailing-dot alias does not resolve on this volume"
+                return
+            }
+            Test-ProtectedPath -Path $alias | Should -Be $true
+        }
+
+        It "Should keep a planned path under an unprotected parent safe" {
+            $planned = Join-Path $env:TEMP ("mole-planned-" + [guid]::NewGuid().ToString("N"))
+            Test-ProtectedPath -Path $planned | Should -Be $false
+        }
+
+        It "Should resolve an existing short-name alias to its final path" {
+            if (-not (Test-Path -LiteralPath "C:\PROGRA~1")) {
+                Set-ItResult -Skipped -Because "8.3 short names are not created on this volume"
+                return
+            }
+            Resolve-SafePath -Path "C:\PROGRA~1" |
+                Should -Be ([System.IO.Path]::GetFullPath($env:ProgramFiles))
+        }
+
         It "Should not protect temp directories" {
             Test-ProtectedPath -Path $env:TEMP | Should -Be $false
         }

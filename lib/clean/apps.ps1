@@ -403,7 +403,10 @@ function Clear-GameMediaFiles {
     Start-Section "Game media (>${DaysOld}d old)"
     
     $cutoffDate = (Get-Date).AddDays(-$DaysOld)
-    $mediaExtensions = @('*.mp4', '*.mkv', '*.avi', '*.mov', '*.wmv', '*.webm', '*.png', '*.jpg', '*.jpeg', '*.bmp', '*.gif')
+    # One recursive enumeration per media root, then one extension filter. The
+    # old per-extension loop read every root eleven times for the same files.
+    $mediaExtensionPattern = '^\.(mp4|mkv|avi|mov|wmv|webm|png|jpg|jpeg|bmp|gif)$'
+    $obsExtensionPattern = '^\.(mp4|mkv|flv|mov|ts)$'
     
     # -------------------------------------------------------------------------
     # NVIDIA ShadowPlay / GeForce Experience
@@ -416,13 +419,11 @@ function Clear-GameMediaFiles {
     
     foreach ($basePath in $nvidiaPaths) {
         if (Test-Path $basePath) {
-            foreach ($ext in $mediaExtensions) {
-                $oldFiles = Get-ChildItem -Path $basePath -Filter $ext -File -Recurse -ErrorAction SilentlyContinue |
-                            Where-Object { $_.LastWriteTime -lt $cutoffDate }
-                if ($oldFiles) {
-                    $paths = $oldFiles | ForEach-Object { $_.FullName }
-                    Remove-SafeItems -Paths $paths -Description "NVIDIA recordings (>${DaysOld}d)"
-                }
+            $oldFiles = Get-ChildItem -Path $basePath -File -Recurse -ErrorAction SilentlyContinue |
+                        Where-Object { $_.LastWriteTime -lt $cutoffDate -and $_.Extension -match $mediaExtensionPattern }
+            if ($oldFiles) {
+                $paths = $oldFiles | ForEach-Object { $_.FullName }
+                Remove-SafeItems -Paths $paths -Description "NVIDIA recordings (>${DaysOld}d)"
             }
         }
     }
@@ -449,13 +450,11 @@ function Clear-GameMediaFiles {
     
     foreach ($basePath in $amdPaths) {
         if (Test-Path $basePath) {
-            foreach ($ext in $mediaExtensions) {
-                $oldFiles = Get-ChildItem -Path $basePath -Filter $ext -File -Recurse -ErrorAction SilentlyContinue |
-                            Where-Object { $_.LastWriteTime -lt $cutoffDate }
-                if ($oldFiles) {
-                    $paths = $oldFiles | ForEach-Object { $_.FullName }
-                    Remove-SafeItems -Paths $paths -Description "AMD ReLive recordings (>${DaysOld}d)"
-                }
+            $oldFiles = Get-ChildItem -Path $basePath -File -Recurse -ErrorAction SilentlyContinue |
+                        Where-Object { $_.LastWriteTime -lt $cutoffDate -and $_.Extension -match $mediaExtensionPattern }
+            if ($oldFiles) {
+                $paths = $oldFiles | ForEach-Object { $_.FullName }
+                Remove-SafeItems -Paths $paths -Description "AMD ReLive recordings (>${DaysOld}d)"
             }
         }
     }
@@ -465,13 +464,11 @@ function Clear-GameMediaFiles {
     # -------------------------------------------------------------------------
     $xboxCapturesPath = "$env:USERPROFILE\Videos\Captures"
     if (Test-Path $xboxCapturesPath) {
-        foreach ($ext in $mediaExtensions) {
-            $oldFiles = Get-ChildItem -Path $xboxCapturesPath -Filter $ext -File -ErrorAction SilentlyContinue |
-                        Where-Object { $_.LastWriteTime -lt $cutoffDate }
-            if ($oldFiles) {
-                $paths = $oldFiles | ForEach-Object { $_.FullName }
-                Remove-SafeItems -Paths $paths -Description "Xbox Game Bar captures (>${DaysOld}d)"
-            }
+        $oldFiles = Get-ChildItem -Path $xboxCapturesPath -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -lt $cutoffDate -and $_.Extension -match $mediaExtensionPattern }
+        if ($oldFiles) {
+            $paths = $oldFiles | ForEach-Object { $_.FullName }
+            Remove-SafeItems -Paths $paths -Description "Xbox Game Bar captures (>${DaysOld}d)"
         }
     }
     
@@ -511,13 +508,11 @@ function Clear-GameMediaFiles {
     # -------------------------------------------------------------------------
     $obsRecordingsPath = "$env:USERPROFILE\Videos\OBS"
     if (Test-Path $obsRecordingsPath) {
-        foreach ($ext in @('*.mp4', '*.mkv', '*.flv', '*.mov', '*.ts')) {
-            $oldFiles = Get-ChildItem -Path $obsRecordingsPath -Filter $ext -File -Recurse -ErrorAction SilentlyContinue |
-                        Where-Object { $_.LastWriteTime -lt $cutoffDate }
-            if ($oldFiles) {
-                $paths = $oldFiles | ForEach-Object { $_.FullName }
-                Remove-SafeItems -Paths $paths -Description "OBS recordings (>${DaysOld}d)"
-            }
+        $oldFiles = Get-ChildItem -Path $obsRecordingsPath -File -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -lt $cutoffDate -and $_.Extension -match $obsExtensionPattern }
+        if ($oldFiles) {
+            $paths = $oldFiles | ForEach-Object { $_.FullName }
+            Remove-SafeItems -Paths $paths -Description "OBS recordings (>${DaysOld}d)"
         }
     }
     
@@ -542,13 +537,11 @@ function Clear-GameMediaFiles {
     # -------------------------------------------------------------------------
     $medalPath = "$env:USERPROFILE\Videos\Medal"
     if (Test-Path $medalPath) {
-        foreach ($ext in $mediaExtensions) {
-            $oldFiles = Get-ChildItem -Path $medalPath -Filter $ext -File -Recurse -ErrorAction SilentlyContinue |
-                        Where-Object { $_.LastWriteTime -lt $cutoffDate }
-            if ($oldFiles) {
-                $paths = $oldFiles | ForEach-Object { $_.FullName }
-                Remove-SafeItems -Paths $paths -Description "Medal.tv clips (>${DaysOld}d)"
-            }
+        $oldFiles = Get-ChildItem -Path $medalPath -File -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object { $_.LastWriteTime -lt $cutoffDate -and $_.Extension -match $mediaExtensionPattern }
+        if ($oldFiles) {
+            $paths = $oldFiles | ForEach-Object { $_.FullName }
+            Remove-SafeItems -Paths $paths -Description "Medal.tv clips (>${DaysOld}d)"
         }
     }
     
@@ -561,13 +554,11 @@ function Clear-GameMediaFiles {
     )
     foreach ($basePath in $overwolfPaths) {
         if (Test-Path $basePath) {
-            foreach ($ext in $mediaExtensions) {
-                $oldFiles = Get-ChildItem -Path $basePath -Filter $ext -File -Recurse -ErrorAction SilentlyContinue |
-                            Where-Object { $_.LastWriteTime -lt $cutoffDate }
-                if ($oldFiles) {
-                    $paths = $oldFiles | ForEach-Object { $_.FullName }
-                    Remove-SafeItems -Paths $paths -Description "Overwolf/Outplayed recordings (>${DaysOld}d)"
-                }
+            $oldFiles = Get-ChildItem -Path $basePath -File -Recurse -ErrorAction SilentlyContinue |
+                        Where-Object { $_.LastWriteTime -lt $cutoffDate -and $_.Extension -match $mediaExtensionPattern }
+            if ($oldFiles) {
+                $paths = $oldFiles | ForEach-Object { $_.FullName }
+                Remove-SafeItems -Paths $paths -Description "Overwolf/Outplayed recordings (>${DaysOld}d)"
             }
         }
     }

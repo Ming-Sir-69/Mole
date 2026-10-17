@@ -224,7 +224,9 @@ if (-not (Test-Path $gitDir)) {
         exit 1
     }
     Write-Host "This installation is not a git-based source install." -ForegroundColor Red
-    Write-Host "Reinstall with quick-install to enable 'mo update'." -ForegroundColor Yellow
+    Write-Host "Only a source install can run 'mo update'. Remove or rename $windowsDir, then install a fresh copy:" -ForegroundColor Yellow
+    Write-Host "  irm https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 | iex" -ForegroundColor Yellow
+    Write-Host "A release ZIP works too: run its install.ps1 with a new -InstallDir and -AddToPath." -ForegroundColor Yellow
     exit 1
 }
 

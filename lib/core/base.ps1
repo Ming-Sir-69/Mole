@@ -331,23 +331,140 @@ function Test-PathHasSegment {
     return $false
 }
 
-function Test-ProtectedPath {
-    <#
-    .SYNOPSIS
-        Check if a path is protected and should never be modified
-    #>
+# Resolve an existing path to the final path the filesystem actually uses.
+# Windows accepts 8.3 short names ("C:\PROGRA~1") and trailing-dot or
+# trailing-space aliases ("C:\Windows.\System32") that Path.GetFullPath leaves
+# as typed, so a lexical protected-path check can miss the protected tree they
+# name. The handle follows every alias; the Get-Item fallback covers hosts
+# where Add-Type is unavailable. Returns three states:
+#   Exists = $false             no such path; callers keep the lexical answer
+#   Exists = $true, Path = ...  the path resolved to its final spelling
+#   Exists = $true, Path = $null the path exists but cannot be resolved
+function Resolve-MoleExistingPathInfo {
     param([string]$Path)
 
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return $true
-    }
-
+    $resolved = $null
     try {
-        $normalizedPath = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+        if (-not ('Mole.PathAliasResolver' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+namespace Mole {
+    public static class PathAliasResolver {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetFinalPathNameByHandle(SafeFileHandle handle, StringBuilder path, uint length, uint flags);
+
+        public static string Resolve(string path) {
+            using (SafeFileHandle handle = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero)) {
+                if (handle.IsInvalid) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                StringBuilder buffer = new StringBuilder(512);
+                uint size = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
+                if (size == 0) {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+                if (size >= buffer.Capacity) {
+                    buffer = new StringBuilder((int)size + 1);
+                    size = GetFinalPathNameByHandle(handle, buffer, (uint)buffer.Capacity, 0);
+                    if (size == 0 || size >= buffer.Capacity) {
+                        throw new Win32Exception(Marshal.GetLastWin32Error());
+                    }
+                }
+                return buffer.ToString();
+            }
+        }
+    }
+}
+'@ -ErrorAction Stop
+        }
+        $resolved = [Mole.PathAliasResolver]::Resolve($Path)
     }
     catch {
-        return $true
+        $resolved = $null
     }
+
+    if (-not $resolved) {
+        try {
+            $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+            if ($null -ne $item -and $item.FullName) {
+                $resolved = $item.FullName
+            }
+        }
+        catch {
+            $resolved = $null
+        }
+    }
+
+    if (-not $resolved) {
+        $exists = $false
+        try {
+            $exists = [System.IO.File]::Exists($Path) -or [System.IO.Directory]::Exists($Path)
+        }
+        catch {
+            $exists = $true
+        }
+        return @{ Exists = $exists; Path = $null }
+    }
+
+    # GetFinalPathNameByHandle returns a \\?\ path; fold it back to the
+    # drive-letter shape the protection lists use, UNC shares included.
+    if ($resolved.StartsWith('\\?\UNC\', [StringComparison]::OrdinalIgnoreCase)) {
+        $resolved = '\\' + $resolved.Substring(8)
+    }
+    elseif ($resolved.StartsWith('\\?\', [StringComparison]::OrdinalIgnoreCase)) {
+        $resolved = $resolved.Substring(4)
+    }
+    return @{ Exists = $true; Path = $resolved }
+}
+
+# Each protected entry is compared in both its configured spelling and its
+# final filesystem spelling, so a short-name or environment spelling in the
+# list still protects the long path a walk yields. Normalized forms are built
+# once per distinct entry, not once per candidate.
+$script:MoleProtectedPathFormCache = @{}
+
+function Get-MoleProtectedPathForms {
+    param([string]$Protected)
+
+    if ($script:MoleProtectedPathFormCache.ContainsKey($Protected)) {
+        return $script:MoleProtectedPathFormCache[$Protected]
+    }
+
+    $forms = New-Object System.Collections.Generic.List[string]
+    try {
+        $forms.Add([System.IO.Path]::GetFullPath($Protected).TrimEnd('\'))
+    }
+    catch {
+    }
+    $info = Resolve-MoleExistingPathInfo -Path $Protected
+    if ($info.Exists -and $info.Path) {
+        try {
+            $canonical = [System.IO.Path]::GetFullPath($info.Path).TrimEnd('\')
+            if (-not $forms.Contains($canonical)) {
+                $forms.Add($canonical)
+            }
+        }
+        catch {
+        }
+    }
+    $script:MoleProtectedPathFormCache[$Protected] = $forms.ToArray()
+    return $script:MoleProtectedPathFormCache[$Protected]
+}
+
+# Existing lexical list checks, factored out so the typed spelling and the
+# resolved final path are judged by exactly the same rules.
+function Test-MoleProtectedPathForm {
+    param([string]$NormalizedPath)
+
+    $normalizedPath = $NormalizedPath
 
     if (Test-PathHasSegment -NormalizedPath $normalizedPath -Segments $script:ProtectedPathSegments) {
         return $true
@@ -363,15 +480,10 @@ function Test-ProtectedPath {
             continue
         }
 
-        try {
-            $normalizedProtected = [System.IO.Path]::GetFullPath($protected).TrimEnd('\')
-        }
-        catch {
-            continue
-        }
-
-        if ($normalizedPath -eq $normalizedProtected) {
-            return $true
+        foreach ($normalizedProtected in (Get-MoleProtectedPathForms -Protected $protected)) {
+            if ($normalizedPath -eq $normalizedProtected) {
+                return $true
+            }
         }
     }
 
@@ -380,19 +492,55 @@ function Test-ProtectedPath {
             continue
         }
 
-        try {
-            $normalizedProtected = [System.IO.Path]::GetFullPath($protected).TrimEnd('\')
-        }
-        catch {
-            continue
-        }
-
-        if ($normalizedPath -eq $normalizedProtected -or 
-            $normalizedPath.StartsWith("$normalizedProtected\", [StringComparison]::OrdinalIgnoreCase)) {
-            return $true
+        foreach ($normalizedProtected in (Get-MoleProtectedPathForms -Protected $protected)) {
+            if ($normalizedPath -eq $normalizedProtected -or
+                $normalizedPath.StartsWith("$normalizedProtected\", [StringComparison]::OrdinalIgnoreCase)) {
+                return $true
+            }
         }
     }
     return $false
+}
+
+function Test-ProtectedPath {
+    <#
+    .SYNOPSIS
+        Check if a path is protected and should never be modified
+    #>
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $true
+    }
+
+    try {
+        $fullPath = [System.IO.Path]::GetFullPath($Path)
+        $normalizedPath = $fullPath.TrimEnd('\')
+    }
+    catch {
+        return $true
+    }
+
+    # The typed spelling first, including protected prefixes and segments.
+    if (Test-MoleProtectedPathForm -NormalizedPath $normalizedPath) {
+        return $true
+    }
+
+    # Existing aliases (8.3 short names, trailing-dot spellings, reparse
+    # points) reach the same tree under a spelling the lexical rules miss.
+    $alias = Resolve-MoleExistingPathInfo -Path $fullPath
+    if (-not $alias.Exists) {
+        return $false
+    }
+    if (-not $alias.Path) {
+        # A path that exists but cannot be resolved could name any target.
+        return $true
+    }
+    $resolvedPath = $alias.Path.TrimEnd('\')
+    if ($resolvedPath -eq $normalizedPath) {
+        return $false
+    }
+    return (Test-MoleProtectedPathForm -NormalizedPath $resolvedPath)
 }
 
 function Test-WhitelistPattern {
@@ -488,14 +636,26 @@ function Resolve-SafePath {
         Resolve and validate a path for safe operations
     #>
     param([string]$Path)
-    
+
     try {
         $resolved = [System.IO.Path]::GetFullPath($Path)
-        return $resolved
     }
     catch {
         return $null
     }
+
+    # Existing paths resolve to their final spelling so later whitelist and
+    # protection checks see the target, not an 8.3 or trailing-dot alias of it.
+    # A path that exists but cannot be resolved is refused, never treated as a
+    # missing candidate.
+    $alias = Resolve-MoleExistingPathInfo -Path $resolved
+    if (-not $alias.Exists) {
+        return $resolved
+    }
+    if (-not $alias.Path) {
+        return $null
+    }
+    return $alias.Path
 }
 
 # ============================================================================
