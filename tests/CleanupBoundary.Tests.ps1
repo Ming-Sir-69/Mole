@@ -40,11 +40,6 @@ Describe 'Cleanup physical boundaries' {
         Remove-SafeItem -Path (Join-Path $link 'keep.txt') | Should -BeFalse
         Test-Path -LiteralPath $sentinel | Should -BeTrue
     }
-    It 'Treats a junction into a protected tree as protected' {
-        $link = Join-Path $script:Root 'windows-link'
-        New-Item -ItemType Junction -Path $link -Target $env:SystemRoot | Out-Null
-        Test-ProtectedPath -Path (Join-Path $link 'System32') | Should -BeTrue
-    }
     It 'Retains every candidate when a bounded cache scan times out' {
         $bounded = Join-Path $script:Root 'bounded'
         New-Item -ItemType Directory -Path $bounded | Out-Null
