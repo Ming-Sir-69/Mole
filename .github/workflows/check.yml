@@ -9,10 +9,15 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   format:
     name: Format & Lint
     runs-on: windows-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout

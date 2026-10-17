@@ -20,10 +20,15 @@ on:
 permissions:
   contents: write  # Required for creating releases
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-windows:
     name: Build Windows Release Artifacts
     runs-on: windows-latest
+    timeout-minutes: 45
     
     steps:
       - name: Checkout code
@@ -63,15 +68,88 @@ jobs:
           Write-Host "Version: $version (prerelease: $prerelease)"
           "VERSION=$version" >> $env:GITHUB_OUTPUT
           "PRERELEASE=$prerelease" >> $env:GITHUB_OUTPUT
-      
-      - name: Run tests
+
+      - name: Verify tag version matches VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          TAG_VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if (-not (Test-Path VERSION)) {
+              throw "VERSION file is missing; the release archive would ship without a version."
+          }
+          $declared = (Get-Content VERSION -Raw).Trim()
+          if ($declared -ne $env:TAG_VERSION) {
+              Write-Host "::error file=VERSION::Tag version $($env:TAG_VERSION) does not match VERSION '$declared'. The archive, its VERSION file and mo --version would report the wrong version."
+              Write-Host "Next action: bump VERSION and lib/core/version.ps1, commit, delete the pushed tag with 'git push origin :refs/tags/<tag>', then tag and push the new commit."
+              exit 1
+          }
+          Write-Host "Tag version $($env:TAG_VERSION) matches VERSION"
+
+      - name: Cache Pester
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Same pinned Pester as Validation; the release gate must run the
+          # suite under both Windows PowerShell 5.1 and pwsh 7, not pwsh alone.
+          path: |
+            ~\Documents\PowerShell\Modules
+            ~\Documents\WindowsPowerShell\Modules
+          key: ${{ runner.os }}-pester-6.2.0
+
+      - name: Install Pester (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $preferred = '6.2.0'
+          $fallback = '5.7.1'
+          $have = Get-Module -ListAvailable -Name Pester |
+              Where-Object { $_.Version.ToString() -eq $preferred }
+          if (-not $have) {
+              try {
+                  Install-Module -Name Pester -RequiredVersion $preferred -Force -SkipPublisherCheck -Scope CurrentUser -ErrorAction Stop
+              }
+              catch {
+                  Write-Host "Pester $preferred is unavailable; falling back to $fallback."
+                  Install-Module -Name Pester -RequiredVersion $fallback -Force -SkipPublisherCheck -Scope CurrentUser
+              }
+          }
+          Import-Module Pester -MinimumVersion '5.0.0'
+          Write-Host "Pester $((Get-Module Pester).Version) ready"
+
+      - name: Install Pester (PowerShell 7)
         shell: pwsh
         run: |
-          if (Test-Path "scripts\test.ps1") {
-            & scripts\test.ps1
-          } else {
-            Write-Host "No test script found, skipping tests"
+          $ErrorActionPreference = "Stop"
+          $preferred = '6.2.0'
+          $fallback = '5.7.1'
+          $have = Get-Module -ListAvailable -Name Pester |
+              Where-Object { $_.Version.ToString() -eq $preferred }
+          if (-not $have) {
+              try {
+                  Install-Module -Name Pester -RequiredVersion $preferred -Force -SkipPublisherCheck -Scope CurrentUser -ErrorAction Stop
+              }
+              catch {
+                  Write-Host "Pester $preferred is unavailable; falling back to $fallback."
+                  Install-Module -Name Pester -RequiredVersion $fallback -Force -SkipPublisherCheck -Scope CurrentUser
+              }
           }
+          Import-Module Pester -MinimumVersion '5.0.0'
+          Write-Host "Pester $((Get-Module Pester).Version) ready"
+
+      - name: Run tests (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          Write-Host "PowerShell $($PSVersionTable.PSVersion)"
+          & ./scripts/test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run tests (PowerShell 7)
+        shell: pwsh
+        run: |
+          Write-Host "PowerShell $($PSVersionTable.PSVersion)"
+          & ./scripts/test.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       
 
       - name: Build release artifacts (ZIP)
@@ -94,6 +172,7 @@ jobs:
           name: mole-${{ steps.version.outputs.VERSION }}-x64-zip
           path: release/mole-${{ steps.version.outputs.VERSION }}-x64.zip
           if-no-files-found: error
+          retention-days: 1
       
 
       - name: Upload checksums
@@ -102,6 +181,7 @@ jobs:
           name: checksums
           path: release/SHA256SUMS.txt
           if-no-files-found: error
+          retention-days: 1
 
       - name: Upload TUI binaries
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -111,6 +191,7 @@ jobs:
             release/analyze-windows-x64.exe
             release/status-windows-x64.exe
           if-no-files-found: error
+          retention-days: 1
 
       - name: Collect release files
         id: release_files

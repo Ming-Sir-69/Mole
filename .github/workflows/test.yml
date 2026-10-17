@@ -6,11 +6,19 @@ on:
   pull_request:
     branches: [windows]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   tests:
     # Mole targets Windows PowerShell 5.1; pwsh 7 is what most contributors run.
     name: Tests (${{ matrix.shell }})
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -26,19 +34,43 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Cache Pester
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # Pester 6.2.0 is the version verified in docs/development-record.md
+          # on both Windows PowerShell 5.1 and pwsh 7. The two hosts use
+          # different CurrentUser module roots, hence the matrix-shell key.
+          path: |
+            ~\Documents\PowerShell\Modules
+            ~\Documents\WindowsPowerShell\Modules
+          key: ${{ runner.os }}-${{ matrix.shell }}-pester-6.2.0
+
       - name: Install Pester
         run: |
-          Install-Module -Name Pester -MinimumVersion 5.0.0 -Force -SkipPublisherCheck -Scope CurrentUser
+          $ErrorActionPreference = "Stop"
+          $preferred = '6.2.0'
+          $fallback = '5.7.1'
+          $have = Get-Module -ListAvailable -Name Pester |
+              Where-Object { $_.Version.ToString() -eq $preferred }
+          if (-not $have) {
+              try {
+                  Install-Module -Name Pester -RequiredVersion $preferred -Force -SkipPublisherCheck -Scope CurrentUser -ErrorAction Stop
+              }
+              catch {
+                  Write-Host "Pester $preferred is unavailable; falling back to $fallback."
+                  Install-Module -Name Pester -RequiredVersion $fallback -Force -SkipPublisherCheck -Scope CurrentUser
+              }
+          }
+          Import-Module Pester -MinimumVersion '5.0.0'
+          Write-Host "Pester $((Get-Module Pester).Version) ready"
 
       - name: Run PowerShell tests
         run: |
           Write-Host "PowerShell $($PSVersionTable.PSVersion)"
-          Import-Module Pester -MinimumVersion 5.0.0
-          $config = New-PesterConfiguration
-          $config.Run.Path = "./tests"
-          $config.Output.Verbosity = "Detailed"
-          $config.Run.Exit = $true
-          Invoke-Pester -Configuration $config
+          # scripts/test.ps1 owns the pass gate: a missing result, zero passing
+          # tests and an entirely skipped suite are failures there.
+          & ./scripts/test.ps1 -NoGo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run Go tests
         if: matrix.shell == 'pwsh'
@@ -50,6 +82,7 @@ jobs:
   build:
     name: Build
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -83,6 +116,7 @@ jobs:
   security:
     name: Security Checks
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
