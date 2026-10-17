@@ -144,7 +144,7 @@ function Test-SafePath {
     }
     
     # Check protected paths
-    if (Test-ProtectedPath -Path $fullPath) {
+    if (Test-ProtectedPath -Path $fullPath -AlreadyResolved) {
         Write-Debug "Protected path rejected: $fullPath"
         return $false
     }

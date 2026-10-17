@@ -507,7 +507,7 @@ function Test-ProtectedPath {
     .SYNOPSIS
         Check if a path is protected and should never be modified
     #>
-    param([string]$Path)
+    param([string]$Path, [switch]$AlreadyResolved)
 
     if ([string]::IsNullOrWhiteSpace($Path)) {
         return $true
@@ -525,6 +525,10 @@ function Test-ProtectedPath {
     if (Test-MoleProtectedPathForm -NormalizedPath $normalizedPath) {
         return $true
     }
+
+    # Callers that already resolved the final path (Test-SafePath) do not pay
+    # for a second handle probe.
+    if ($AlreadyResolved) { return $false }
 
     # Existing aliases (8.3 short names, trailing-dot spellings, reparse
     # points) reach the same tree under a spelling the lexical rules miss.

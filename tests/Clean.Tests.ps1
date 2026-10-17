@@ -152,6 +152,12 @@ Describe "Bounded developer cache scans" {
         $script:CollectedPaths | Should -Not -Contain (Join-Path $script:DevHome ".m2\repository\group\artifact.jar")
         $script:CollectedPaths | Should -Not -Contain (Join-Path $script:DevHome ".stack\snapshots\pkg\download.tar.gz")
     }
+    It "Removes nothing when a bounded scan is incomplete" {
+        Mock Get-FilesWithinBudget { @{ Files = @(); Complete = $false } }
+        Clear-JvmCaches
+        Clear-HaskellCaches
+        $script:CollectedPaths.Count | Should -Be 0
+    }
     It "Reports a small tree as completely enumerated" {
         $scan = Get-FilesWithinBudget -Root (Join-Path $script:DevHome ".m2\repository") -Filter "*.lastUpdated" -TimeoutSeconds 15
         $scan.Complete | Should -Be $true
