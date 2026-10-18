@@ -214,3 +214,9 @@ Windows 11 ARM64 Parallels verification used Windows PowerShell 5.1 and PowerShe
 The nine Python tests, Windows Go cross-build, formatting and workflow syntax checks passed on macOS. Exact-head Windows CI remains the complete-host verification gate. This batch changes source, tests and guidance only; no version bump, signed package, release, ThinkPad installation or real cleanup is claimed. Existing media-selection policy remains unchanged.
 
 Source delivery resumed on 2026-10-18 after the maintainer authorized another attempt following two SSH closures. Both branches pushed successfully, with remote heads matching `eccdbb8c` on `windows` and `7ef8e8f0` on `main`. The repair commits are delivered as source. CI is checked separately at the final pushed heads, including the two privilege-limited fixtures.
+
+## 2026-10-18: GPU shader caches leave the default clean
+
+A player reported that cleaning the GPU shader caches made every game compile its shaders again for one to five minutes on its next launch. `mo clean` emptied the NVIDIA, AMD, Intel, DirectX and Vulkan caches on every run; it now does so only with `--gpu-shaders`, the same opt-in shape as `--game-media`, and the help lists the flag with its cost. Browser shader caches stay in the default clean, since they rebuild in seconds. README copies do not list clean flags and are unchanged.
+
+Verification on the Windows 11 ARM64 Parallels VM with Pester 6.2.0: Windows PowerShell 5.1 ran the full suite, 517 passed, 2 failed, 0 skipped; both failures are the launcher symbolic-link case, which needs administrator rights there. The clean and entrypoint files passed 60 of 60 on PowerShell 5.1 and 7.6.7. Against the old `bin/clean.ps1` the two new tests failed and the other five entrypoint tests passed. No version bump, release or real cleanup is included.

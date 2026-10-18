@@ -181,7 +181,8 @@ function Clear-GPUShaderCaches {
     .DESCRIPTION
         GPU drivers cache compiled shaders to improve game/app load times.
         These caches can grow very large (10GB+) and are safe to delete.
-        They will be rebuilt automatically when needed.
+        They will be rebuilt automatically when needed, but every game then compiles
+        its shaders again on its next launch, so mo clean runs this only with --gpu-shaders.
     #>
     
     Start-Section "GPU shader caches"

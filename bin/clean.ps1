@@ -12,6 +12,9 @@ param(
     
     [Alias('game-media')]
     [switch]$GameMedia,
+
+    [Alias('gpu-shaders')]
+    [switch]$GpuShaders,
     
     [Alias('d')]
     [switch]$DebugMode,
@@ -67,6 +70,7 @@ function Show-CleanHelp {
     Write-Host "  --dry-run      Preview changes without deleting (recommended first run)"
     Write-Host "  --system       Include system-level cleanup (requires admin)"
     Write-Host "  --game-media   Clean old game replays, screenshots, recordings (>90d)"
+    Write-Host "  --gpu-shaders  Clean GPU shader caches (games recompile them on next launch)"
     Write-Host "  --whitelist    Manage protected paths"
     Write-Host "  --debug        Enable debug logging"
     Write-Host "  --help         Show this help message"
@@ -160,7 +164,8 @@ function Start-Cleanup {
     param(
         [bool]$IsDryRun,
         [bool]$IncludeSystem,
-        [bool]$IncludeGameMedia
+        [bool]$IncludeGameMedia,
+        [bool]$IncludeGpuShaders
     )
 
     $esc = [char]27
@@ -229,8 +234,11 @@ function Start-Cleanup {
         # Browser caches
         Clear-BrowserCaches
 
-        # GPU shader caches (NVIDIA, AMD, Intel, DirectX)
-        Clear-GPUShaderCaches
+        # GPU shader caches (NVIDIA, AMD, Intel, DirectX) only on request: every game
+        # compiles its shaders again on its next launch, which can take minutes
+        if ($IncludeGpuShaders) {
+            Clear-GPUShaderCaches
+        }
 
         # Application caches
         Clear-AppCaches
@@ -299,7 +307,7 @@ function Main {
     }
 
     # Run cleanup
-    Start-Cleanup -IsDryRun $effectiveDryRun -IncludeSystem $System -IncludeGameMedia $GameMedia
+    Start-Cleanup -IsDryRun $effectiveDryRun -IncludeSystem $System -IncludeGameMedia $GameMedia -IncludeGpuShaders $GpuShaders
 }
 
 # Run main
