@@ -23,6 +23,7 @@ Every Windows release keeps `make_latest: false`. The macOS installer and `mo up
 
 1. CI is green on the `windows` commit you will tag: `Check` and `Validation`, including both PowerShell legs.
 2. Bump the version in one commit: `VERSION` and `$script:MoleDefaultVersion` in `lib/core/version.ps1`.
+3. `scripts/e2e_windows.py --host user@address` exits 0 from the Mac against the Parallels VM and the x64 ThinkPad at that commit (setup in `AGENTS.md`, "Windows e2e").
 
 ## 2. Tag
 

@@ -692,6 +692,7 @@ function Get-MoleInstallNestedFiles {
         "scripts\build-msi.ps1"
         "scripts\build-release.ps1"
         "scripts\build.ps1"
+        "scripts\e2e_windows.py"
         "scripts\mole-installer.wxs"
         "scripts\new-release-zip.ps1"
         "scripts\render-packaging.ps1"

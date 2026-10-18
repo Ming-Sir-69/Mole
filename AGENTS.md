@@ -110,6 +110,14 @@ Parsed command arguments are data: do not strip literal quote characters a secon
 
 Installer copies merge known source files without clearing shared destination directories. Reject unrelated nonempty roots and linked roots or ancestors. Keep the installer itself in copied installations. Whenever adding a shipped file, update `Get-MoleInstallNestedFiles` and run the install inventory test, including documentation-only changes. Source installation and update fetch release tags so native source-equivalence checks can use them; changed native source still requires Go.
 
+## Windows e2e
+
+`scripts/e2e_windows.py` runs on the maintainer's Mac and drives a real PC over SSH with a real terminal (`ssh -tt`, ConPTY on the PC): it deploys this checkout's HEAD with Go tools cross-built for the PC into a temporary folder, installs WinMerge's per-user setup after checking its GitHub digest and Authenticode signature, launches it, uninstalls it through `mo uninstall` by searching and selecting it, deletes the setup file from `mo analyze`, and runs every other command read-only. The PC's own Mole install is not touched. It refuses a PC that already has WinMerge or its settings, and writes `%LOCALAPPDATA%\mole-e2e\fixture.json` before installing so `--cleanup` removes only a fixture a failed run left. Its first runs found the single-match search crash in `mo uninstall`, which Pester on pwsh 7 had hidden.
+
+- One-time PC setup, in an administrator PowerShell: `Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0`, `Set-Service sshd -StartupType Automatic`, `Start-Service sshd`, set `HKLM:\SOFTWARE\OpenSSH` `DefaultShell` to Windows PowerShell, and append the Mac's `~/.config/mole-e2e/id_ed25519.pub` to `C:\ProgramData\ssh\administrators_authorized_keys` (ACL: Administrators and SYSTEM only). The built-in firewall rule covers only Private networks; add an inbound TCP 22 rule scoped with `-RemoteAddress` to the Mac's subnet instead of opening Public networks.
+- The SSH session of an administrator holds an elevated token, so uninstallers that request elevation (WinMerge's does) run without a UAC prompt; the same uninstaller started from a normal desktop session waits on UAC.
+- Run `scripts/e2e_windows.py --host user@address` on the Parallels VM (Parallels host-only rule `10.211.55.0/24`) and on the x64 ThinkPad before a release. Transcripts and `report.json` land in `~/Library/Logs/mole-e2e/windows-<run>/` on the Mac.
+
 ## Release
 
 Read `RELEASE.md` before any release work. In short:
