@@ -16,6 +16,8 @@ Root and command-local flags have different PowerShell binding paths: a long roo
 
 When checking decoded JSON argument arrays in PowerShell 5.1, assign the decoded value before asserting its elements. Wrapping the conversion pipeline in an array can count one emitted array object rather than its individual arguments, falsely suggesting argument loss.
 
+PowerShell pipelines unwrap a single result to a scalar. Keep a collection-shaped result with `@(...)` before inspecting its count or indexing it, and test zero, one and multiple matches. The real uninstall search found the one-match case that multi-match fixtures missed; [Uninstall.Tests.ps1](../tests/Uninstall.Tests.ps1) keeps that regression.
+
 ## Test isolation and false success
 
 A global `git` function left by one Pester file can intercept later tests that need the real executable. A passing isolated file does not prove suite isolation. Keep mocks file-scoped, restore modified process environment in `finally` or teardown, and run the full suite after changes to shared mocks. [GitProxy.Tests.ps1](../tests/GitProxy.Tests.ps1) uses a local stub with Pester-managed mocks.
@@ -47,6 +49,8 @@ A documentation-only change can still change uninstall behavior: the October 13 
 Release-source equivalence needs the release tag locally. A shallow branch clone may omit it even when the native source is unchanged; missing evidence must not silently select an older binary. Fetch tags through the existing install/update path and test unrelated source changes separately from native source changes.
 
 ## Parent selections and accounting
+
+Whitelist canonicalization can add a second row for a junction's final path. Keep the pattern, literal root, directory prefix and wildcard flag associated for every added row; expanding only some parallel arrays makes later wildcards use another pattern or index past the end. [CleanupBoundary.Tests.ps1](../tests/CleanupBoundary.Tests.ps1) mixes junction, wildcard and literal rules in different orders and checks the final wildcard through the real removal sink alongside an eligible neighbor. Testing one junction alone misses this interaction.
 
 Protecting a child path is insufficient when another entry point moves its whole parent. Analyze must inspect protected descendants at review and at its final recycle boundary, while uninstall additionally verifies surviving installed-app owners from a complete inventory rather than its filtered menu. Keep unknown ownership or incomplete traversal read-only.
 

@@ -236,6 +236,78 @@ Describe 'Whitelisted junction roots' {
     }
 }
 
+Describe 'Whitelist canonical pattern associations' {
+    BeforeEach {
+        $script:Root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:Root | Out-Null
+        $script:SavedWhitelist = $script:Config.WhitelistFile
+        $script:SavedDefaultPatterns = $script:DefaultWhitelistPatterns
+        $script:Config.WhitelistFile = Join-Path $script:Root 'whitelist.txt'
+        $script:DefaultWhitelistPatterns = @()
+        Set-DryRunMode -Enabled $false
+    }
+    AfterEach {
+        $script:Config.WhitelistFile = $script:SavedWhitelist
+        $script:DefaultWhitelistPatterns = $script:SavedDefaultPatterns
+        Set-DryRunMode -Enabled $true
+    }
+    It 'Keeps empty and single-pattern states usable' {
+        $candidate = Join-Path $script:Root 'keep.bin'
+        Test-Whitelisted -Path $candidate | Should -BeFalse
+        Set-Content -LiteralPath $script:Config.WhitelistFile -Value (Join-Path $script:Root '*.bin')
+        Test-Whitelisted -Path $candidate | Should -BeTrue
+        Test-Whitelisted -Path (Join-Path $script:Root 'ordinary.tmp') | Should -BeFalse
+    }
+    It 'Keeps mixed junction wildcard and literal rules associated in every position' -TestCases @(
+        @{ Position = 0 }, @{ Position = 1 }, @{ Position = 2 }
+    ) {
+        param($Position)
+        $target = Join-Path $script:Root 'target'
+        $literal = Join-Path $script:Root 'literal'
+        New-Item -ItemType Directory -Path $target, $literal | Out-Null
+        $link = Join-Path $script:Root 'link'
+        New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+        try {
+            $patterns = New-Object System.Collections.Generic.List[string]
+            $patterns.Add((Join-Path $script:Root '*.keep'))
+            $patterns.Add($literal)
+            $patterns.Insert($Position, $link)
+            Set-Content -LiteralPath $script:Config.WhitelistFile -Value $patterns.ToArray()
+            $state = Get-WhitelistState
+            foreach ($path in @(
+                (Join-Path $link 'child.bin'), (Join-Path $target 'child.bin'),
+                (Join-Path $script:Root 'saved.keep'), (Join-Path $literal 'child.bin')
+            )) {
+                Test-Whitelisted -Path $path -State $state | Should -BeTrue -Because $path
+            }
+            Test-Whitelisted -Path (Join-Path $script:Root 'ordinary.tmp') -State $state | Should -BeFalse
+            Test-Whitelisted -Path (Join-Path $script:Root 'literal-other\child.bin') -State $state | Should -BeFalse
+        }
+        finally {
+            [System.IO.Directory]::Delete($link, $false)
+        }
+    }
+    It 'Retains a final wildcard at the removal sink after an expanded junction' {
+        $target = Join-Path $script:Root 'target'
+        New-Item -ItemType Directory -Path $target | Out-Null
+        $link = Join-Path $script:Root 'link'
+        New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+        try {
+            $kept = Join-Path $script:Root 'last.keep'
+            $ordinary = Join-Path $script:Root 'ordinary.tmp'
+            Set-Content -LiteralPath $kept, $ordinary -Value 'fixture'
+            Set-Content -LiteralPath $script:Config.WhitelistFile -Value @($link, (Join-Path $script:Root '*.keep'))
+            Remove-SafeItem -Path $kept | Should -BeFalse
+            Get-Content -LiteralPath $kept | Should -Be 'fixture'
+            Remove-SafeItem -Path $ordinary | Should -BeTrue
+            Test-Path -LiteralPath $ordinary | Should -BeFalse
+        }
+        finally {
+            [System.IO.Directory]::Delete($link, $false)
+        }
+    }
+}
+
 Describe 'Linked protected segments' {
     BeforeEach {
         $script:SavedWhitelist = $script:Config.WhitelistFile

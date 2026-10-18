@@ -332,10 +332,9 @@ function Test-PathHasSegment {
 }
 
 # Resolve an existing path to the final path the filesystem actually uses.
-# Windows accepts 8.3 short names ("C:\PROGRA~1") and trailing-dot or
-# trailing-space aliases ("C:\Windows.\System32") that Path.GetFullPath leaves
-# as typed, so a lexical protected-path check can miss the protected tree they
-# name. The handle follows every alias; the Get-Item fallback covers hosts
+# Path.GetFullPath already normalizes the tested 8.3 and trailing-dot aliases,
+# but a junction or symbolic link can still lead to a different protected tree.
+# The handle resolves the final target; the Get-Item fallback covers hosts
 # where Add-Type is unavailable. Returns three states:
 #   Exists = $false             no such path; callers keep the lexical answer
 #   Exists = $true, Path = ...  the path resolved to its final spelling
@@ -599,8 +598,10 @@ function Get-WhitelistState {
     $roots = New-Object System.Collections.Generic.List[string]
     $prefixes = New-Object System.Collections.Generic.List[string]
     $wild = New-Object System.Collections.Generic.List[bool]
+    $matchPatterns = New-Object System.Collections.Generic.List[string]
     foreach ($pattern in $patterns) {
         $root = $pattern.TrimEnd('\')
+        $matchPatterns.Add($pattern)
         $roots.Add($root)
         $prefixes.Add($root + '\')
         $hasWildcard = $pattern.IndexOfAny([char[]]@('*', '?', '[', '`')) -ge 0
@@ -613,6 +614,8 @@ function Get-WhitelistState {
             if ($info.Exists -and $info.Path) {
                 $canonical = $info.Path.TrimEnd('\')
                 if (-not [string]::Equals($canonical, $root, [StringComparison]::OrdinalIgnoreCase)) {
+                    # All matcher arrays describe the same row, including aliases.
+                    $matchPatterns.Add($canonical)
                     $roots.Add($canonical)
                     $prefixes.Add($canonical + '\')
                     $wild.Add($false)
@@ -622,7 +625,7 @@ function Get-WhitelistState {
     }
     return @{
         RetainAll = $retainAll
-        Patterns  = $patterns.ToArray()
+        Patterns  = $matchPatterns.ToArray()
         Roots     = $roots.ToArray()
         Prefixes  = $prefixes.ToArray()
         Wild      = $wild.ToArray()
