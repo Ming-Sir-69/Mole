@@ -172,6 +172,64 @@ Describe "install.ps1 -Uninstall" {
         Test-Path $own | Should -BeFalse
     }
 
+    It "Removes the Mole cache with the install and keeps linked targets" {
+        $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
+        New-CliTree -Root $own
+        $InstallDir = $own
+        $env:USERPROFILE = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        $cache = Join-Path $env:USERPROFILE ".cache\mole"
+        New-Item -ItemType Directory -Path (Join-Path $cache "old") -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $cache "old\nested.txt") -Value "cache"
+        $outside = Join-Path $TestDrive ("outside-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path $outside -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $outside "keep.txt") -Value "mine"
+        $null = New-Item -ItemType Junction -Path (Join-Path $cache "linked") -Target $outside
+        try {
+            Uninstall-Mole | Should -BeTrue
+
+            Test-Path -LiteralPath $cache | Should -BeFalse
+            Get-Content -LiteralPath (Join-Path $outside "keep.txt") | Should -Be "mine"
+        }
+        finally {
+            $link = Join-Path $cache "linked"
+            if (Test-Path -LiteralPath $link) { [System.IO.Directory]::Delete($link) }
+        }
+    }
+
+    It "Records the cache removal in the operation log" {
+        $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
+        New-CliTree -Root $own
+        $InstallDir = $own
+        $env:USERPROFILE = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Path (Join-Path $env:USERPROFILE ".cache\mole") -Force | Out-Null
+        $global:UninstallOps = @()
+        function global:Write-MoleOperation {
+            param($Action, $Path, $Detail)
+            $global:UninstallOps += "$Action $Path $Detail"
+        }
+        try {
+            Uninstall-Mole | Should -BeTrue
+        }
+        finally {
+            Remove-Item function:global:Write-MoleOperation -ErrorAction SilentlyContinue
+        }
+        ($global:UninstallOps -join "`n") | Should -Match 'REMOVED .*\.cache\\mole cache'
+    }
+
+    It "Keeps the Mole cache when the folder is not a Mole install" {
+        $other = Join-Path $env:LOCALAPPDATA "NotMole"
+        New-Item -ItemType Directory -Path $other -Force | Out-Null
+        $InstallDir = $other
+        $env:USERPROFILE = Join-Path $TestDrive ([guid]::NewGuid().ToString("N"))
+        $cache = Join-Path $env:USERPROFILE ".cache\mole"
+        New-Item -ItemType Directory -Path $cache -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $cache "keep.txt") -Value "cache"
+
+        Uninstall-Mole | Should -BeFalse
+
+        Test-Path -LiteralPath (Join-Path $cache "keep.txt") | Should -BeTrue
+    }
+
     It "Keeps the operation log when the user removes the config files" {
         $own = Join-Path $env:LOCALAPPDATA "Programs\mole-cli"
         New-CliTree -Root $own

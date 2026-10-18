@@ -205,67 +205,6 @@ Describe 'Package manager update without Git' {
     }
 }
 
-Describe 'Remove command cache cleanup' {
-    BeforeEach {
-        $script:RemoveRoot = Join-Path $TestDrive ('remove-' + [guid]::NewGuid().ToString('N'))
-        $script:RemoveHome = Join-Path $script:RemoveRoot 'home'
-        $script:RemoveBin = Join-Path $script:RemoveRoot 'bin'
-        New-Item -ItemType Directory -Path $script:RemoveBin, (Join-Path $script:RemoveHome '.cache\mole\old') -Force | Out-Null
-        Copy-Item -LiteralPath (Join-Path $script:RepoRoot 'bin\remove.ps1') -Destination (Join-Path $script:RemoveBin 'remove.ps1')
-        Set-Content -LiteralPath (Join-Path $script:RemoveHome '.cache\mole\old\nested.txt') -Value 'cache'
-        Set-Content -LiteralPath (Join-Path $script:RemoveRoot 'mole.ps1') -Value '# entry'
-        @'
-param(
-    [string]$InstallDir,
-    [switch]$Uninstall
-)
-if ($env:MOLE_TEST_UNINSTALL_EXIT -eq '0') {
-    Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'mole.ps1') -Force -ErrorAction SilentlyContinue
-    return
-}
-$global:LASTEXITCODE = 1
-'@ | Set-Content -LiteralPath (Join-Path $script:RemoveRoot 'install.ps1')
-        $script:SavedRemoveProfile = $env:USERPROFILE
-        $script:SavedRemoveExit = $env:MOLE_TEST_UNINSTALL_EXIT
-        $env:USERPROFILE = $script:RemoveHome
-    }
-    AfterEach {
-        $env:USERPROFILE = $script:SavedRemoveProfile
-        $env:MOLE_TEST_UNINSTALL_EXIT = $script:SavedRemoveExit
-        $global:LASTEXITCODE = 0
-    }
-    It 'Removes the Mole cache only after the install is gone' {
-        $env:MOLE_TEST_UNINSTALL_EXIT = '0'
-        Mock Read-Host { 'y' }
-        & (Join-Path $script:RemoveBin 'remove.ps1')
-        Test-Path -LiteralPath (Join-Path $script:RemoveRoot 'mole.ps1') | Should -BeFalse
-        Test-Path -LiteralPath (Join-Path $script:RemoveHome '.cache\mole') | Should -BeFalse
-    }
-    It 'Records the cache removal in the operation log' {
-        $env:MOLE_TEST_UNINSTALL_EXIT = '0'
-        Mock Read-Host { 'y' }
-        $global:RemoveOps = @()
-        function global:Write-MoleOperation {
-            param($Action, $Path, $Detail)
-            $global:RemoveOps += "$Action $Path $Detail"
-        }
-        try {
-            & (Join-Path $script:RemoveBin 'remove.ps1')
-        }
-        finally {
-            Remove-Item function:global:Write-MoleOperation -ErrorAction SilentlyContinue
-        }
-        ($global:RemoveOps -join "`n") | Should -Match 'REMOVED'
-        ($global:RemoveOps -join "`n") | Should -Match 'cache'
-    }
-    It 'Keeps the Mole cache when the uninstall does not complete' {
-        $env:MOLE_TEST_UNINSTALL_EXIT = '1'
-        Mock Read-Host { 'y' }
-        & (Join-Path $script:RemoveBin 'remove.ps1')
-        Test-Path -LiteralPath (Join-Path $script:RemoveHome '.cache\mole\old\nested.txt') | Should -BeTrue
-    }
-}
-
 Describe 'Release source equivalence' {
     AfterEach {
         # Git marks loose objects read-only; Pester 5.7 cannot remove those files.

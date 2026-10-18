@@ -886,6 +886,29 @@ function Uninstall-Mole {
         Write-MoleWarning "Kept $($kept.Count) item(s) Mole did not install: $($kept -join ', ')"
     }
 
+    # The cache folder is Mole-owned and rebuildable, like the macOS CLI's
+    # ~/.cache/mole: downloaded tool binaries and scan caches, never
+    # user-authored state. A linked cache root is kept rather than followed.
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        $cachePath = Join-Path $env:USERPROFILE ".cache\mole"
+        if (Test-Path -LiteralPath $cachePath) {
+            try {
+                $cacheRoot = Get-Item -LiteralPath $cachePath -Force -ErrorAction Stop
+                if ($cacheRoot.PSIsContainer -and
+                    -not ($cacheRoot.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
+                    Remove-MoleConfigEntry -Item $cacheRoot
+                    if (Get-Command Write-MoleOperation -ErrorAction SilentlyContinue) {
+                        Write-MoleOperation -Action "REMOVED" -Path $cachePath -Detail "cache"
+                    }
+                    Write-Success "Removed cache: $cachePath"
+                }
+            }
+            catch {
+                Write-MoleWarning "Kept cache: $cachePath ($($_.Exception.Message))"
+            }
+        }
+    }
+
     # Remove config directory if different from install
     $configDir = Join-Path $env:USERPROFILE ".config\mole"
     if (Test-Path $configDir) {

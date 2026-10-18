@@ -61,35 +61,6 @@ if (-not (Test-Path $installScript)) {
     exit 1
 }
 
-# The cache folder is Mole-owned and rebuildable, like the macOS CLI's
-# ~/.cache/mole. Walk it without following links and delete each entry
-# non-recursively, the same rule install.ps1 uses for the config folder: a
-# junction or symbolic link loses only its link, never its target.
-function Remove-MoleCacheEntry {
-    param([System.IO.FileSystemInfo]$Item)
-
-    if ($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
-        if ($Item.Attributes -band [System.IO.FileAttributes]::Directory) {
-            [System.IO.Directory]::Delete($Item.FullName, $false)
-        }
-        else {
-            [System.IO.File]::Delete($Item.FullName)
-        }
-        return
-    }
-    if ($Item.Attributes -band [System.IO.FileAttributes]::Directory) {
-        foreach ($child in @(Get-ChildItem -LiteralPath $Item.FullName -Force -ErrorAction Stop)) {
-            Remove-MoleCacheEntry -Item $child
-        }
-        if ($Item.Attributes -band [System.IO.FileAttributes]::ReadOnly) {
-            $Item.Attributes = $Item.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly)
-        }
-        [System.IO.Directory]::Delete($Item.FullName, $false)
-        return
-    }
-    Remove-Item -LiteralPath $Item.FullName -Force -ErrorAction Stop
-}
-
 # Removing Mole is not undoable, so it is never a side effect of a typo.
 $answer = "$(Read-Host "Remove Mole from ${windowsDir}? (y/N)")".Trim()
 if ($answer -ne "y" -and $answer -ne "Y") {
@@ -101,29 +72,3 @@ if ($answer -ne "y" -and $answer -ne "Y") {
 # successful uninstall look failed.
 $global:LASTEXITCODE = 0
 & $installScript -InstallDir $windowsDir -Uninstall
-$uninstallExit = $LASTEXITCODE
-
-# The cache outlives the config folder and holds downloaded tool binaries and
-# scan caches, never user-authored state. Keep it whenever the install itself
-# was not removed.
-if (($null -eq $uninstallExit -or $uninstallExit -eq 0) -and
-    -not (Test-Path -LiteralPath (Join-Path $windowsDir "mole.ps1")) -and
-    -not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
-    $cachePath = Join-Path $env:USERPROFILE ".cache\mole"
-    if (Test-Path -LiteralPath $cachePath) {
-        try {
-            $cacheRoot = Get-Item -LiteralPath $cachePath -Force -ErrorAction Stop
-            if ($cacheRoot.PSIsContainer -and
-                -not ($cacheRoot.Attributes -band [System.IO.FileAttributes]::ReparsePoint)) {
-                Remove-MoleCacheEntry -Item $cacheRoot
-                if (Get-Command Write-MoleOperation -ErrorAction SilentlyContinue) {
-                    Write-MoleOperation -Action "REMOVED" -Path $cachePath -Detail "cache"
-                }
-                Write-Host "  Removed Mole cache: $cachePath" -ForegroundColor Gray
-            }
-        }
-        catch {
-            Write-Host "  Kept Mole cache: $cachePath ($($_.Exception.Message))" -ForegroundColor Yellow
-        }
-    }
-}
