@@ -706,6 +706,7 @@ function Get-MoleInstallNestedFiles {
         "tests\Core.Tests.ps1"
         "tests\DryRun.Tests.ps1"
         "tests\DryRunEnvironment.Tests.ps1"
+        "tests\e2e_harness_test.py"
         "tests\GitProxy.Tests.ps1"
         "tests\History.Tests.ps1"
         "tests\Install.Tests.ps1"

@@ -189,11 +189,12 @@ class Run:
         self.setup = None
         self.install_location = None
 
-    def step(self, name, func):
-        if self.failed and not self.keep_going:
-            self.steps.append({"name": name, "status": "skipped", "detail": "an earlier step failed"})
+    def step(self, name, func, ready=True):
+        if not ready or (self.failed and not self.keep_going):
+            detail = "a required step did not pass" if not ready else "an earlier step failed"
+            self.steps.append({"name": name, "status": "skipped", "detail": detail})
             print(f"  SKIP  {name}")
-            return
+            return False
         start = time.monotonic()
         try:
             detail = func() or ""
@@ -207,6 +208,7 @@ class Run:
         seconds = round(time.monotonic() - start, 1)
         self.steps.append({"name": name, "status": status, "seconds": seconds, "detail": detail})
         print(f"  {'PASS' if status == 'passed' else 'FAIL'}  {name} ({seconds}s){': ' + detail if detail else ''}")
+        return status == "passed"
 
     def log(self, name):
         return self.dir / f"{len(self.steps) + 1:02d}-{name}.log"
@@ -253,31 +255,45 @@ def preflight(run):
         raise Refused(f"unsupported architecture {info['arch']}")
     run.info["work"] = f"{info['temp']}\\mole-e2e-{run.id}"
     run.info["mole"] = f"{run.info['work']}\\mole\\mole.ps1"
-    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-    run.info["commit"] = sha + (" (uncommitted changes are not deployed)" if dirty else "")
-    return f"{info['user']} on {info['os']} {info['arch']}, candidate {run.info['commit']}"
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    run.info["commit"] = sha
+    note = " (uncommitted changes are not deployed)" if dirty else ""
+    return f"{info['user']} on {info['os']} {info['arch']}, candidate {sha}{note}"
 
 
 def deploy(run):
     with tempfile.TemporaryDirectory(prefix="mole-e2e-") as tmp:
         bundle = Path(tmp) / "mole.zip"
-        subprocess.run(["git", "archive", "--format=zip", "--prefix=mole/", "-o", str(bundle), "HEAD"], cwd=ROOT, check=True)
-        env = dict(os.environ, GOOS="windows", GOARCH=run.info["goarch"], CGO_ENABLED="0")
+        subprocess.run(["git", "archive", "--format=zip", "--prefix=mole/", "-o", str(bundle), run.info["commit"]], cwd=ROOT, check=True)
+        # Build the source being deployed, not uncommitted Go files in ROOT.
+        # The pinned archive also survives HEAD changing after preflight.
+        with zipfile.ZipFile(bundle) as archive:
+            archive.extractall(tmp)
+        source = Path(tmp) / "mole"
+        env = dict(os.environ, GOOS="windows", GOARCH=run.info["goarch"], CGO_ENABLED="0", GOWORK="off")
         with zipfile.ZipFile(bundle, "a") as archive:
             for tool in ("analyze", "status"):
                 exe = Path(tmp) / f"{tool}.exe"
-                build = subprocess.run(["go", "build", "-o", str(exe), f"./cmd/{tool}/"], cwd=ROOT, env=env, capture_output=True, text=True)
+                build = subprocess.run(["go", "build", "-o", str(exe), f"./cmd/{tool}/"], cwd=source, env=env, capture_output=True, text=True)
                 if build.returncode:
                     raise StepFailed(f"go build {tool} failed: {build.stderr.strip()[-300:]}")
                 archive.write(exe, f"mole/bin/{tool}.exe")
-        run.remote.ps(f"New-Item -ItemType Directory -Force -Path '{run.info['work']}' | Out-Null")
+        prepared = run.remote.ps(f"$ErrorActionPreference = 'Stop'; New-Item -ItemType Directory -Force -Path '{run.info['work']}' | Out-Null")
+        if prepared.returncode:
+            raise StepFailed(f"could not prepare candidate folder: {prepared.stderr.strip()[-300:]}")
         run.remote.put(bundle, f"{run.info['work']}\\mole.zip")
-    run.remote.ps_json(rf"""
+    unpacked = run.remote.ps_json(rf"""
+$ErrorActionPreference = 'Stop'
 Expand-Archive -LiteralPath '{run.info['work']}\mole.zip' -DestinationPath '{run.info['work']}' -Force
 Test-Path -LiteralPath '{run.info['mole']}'""")
-    version = run.remote.ps(f"& {run.mole('--version')}").stdout.strip().splitlines()
-    return f"{run.info['goarch']} tools, {version[0] if version else 'no version output'}"
+    if unpacked is not True:
+        raise StepFailed("candidate entrypoint is missing after extraction")
+    result = run.remote.ps(f"& {run.mole('--version')}")
+    version = result.stdout.strip().splitlines()
+    if result.returncode or not version:
+        raise StepFailed(f"candidate version probe failed ({result.returncode})")
+    return f"{run.info['goarch']} tools, {version[0]}"
 
 
 def download(run):
@@ -502,7 +518,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--host", required=True, help="ssh target, user@address")
     parser.add_argument("--identity", default=str(DEFAULT_KEY), help="ssh private key")
-    parser.add_argument("--keep-going", action="store_true", help="run later steps after a failure")
+    parser.add_argument("--keep-going", action="store_true", help="continue independent checks after a failure")
     parser.add_argument("--cleanup", action="store_true", help="remove the fixture an earlier run left, then exit")
     args = parser.parse_args()
     run = Run(args)
@@ -521,14 +537,16 @@ def main():
         sys.exit(2)
     if run.failed:
         sys.exit(1)
-    run.step("deploy candidate", lambda: deploy(run))
-    run.step("download fixture", lambda: download(run))
-    run.step("install fixture", lambda: install(run))
-    run.step("launch fixture", lambda: launch(run))
-    run.step("mo uninstall", lambda: uninstall(run))
-    run.step("mo history", lambda: history(run))
-    run.step("mo analyze delete", lambda: analyze(run))
-    run.step("smoke commands", lambda: smoke(run))
+    deployed = run.step("deploy candidate", lambda: deploy(run))
+    # Failed deployment or integrity checks cannot authorize later mutations.
+    # Keep the setup file if uninstall failed, so recovery retains its fixture.
+    downloaded = run.step("download fixture", lambda: download(run), ready=deployed)
+    installed = run.step("install fixture", lambda: install(run), ready=downloaded)
+    launched = run.step("launch fixture", lambda: launch(run), ready=installed)
+    removed = run.step("mo uninstall", lambda: uninstall(run), ready=launched)
+    run.step("mo history", lambda: history(run), ready=removed)
+    run.step("mo analyze delete", lambda: analyze(run), ready=removed)
+    run.step("smoke commands", lambda: smoke(run), ready=deployed)
     left = cleanup(run) if run.info.get("work") else []
     report = {"run": run.id, "host": run.remote.target, "info": run.info, "steps": run.steps, "not_cleaned_up": left}
     (run.dir / "report.json").write_text(json.dumps(report, indent=2) + "\n")
