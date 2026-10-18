@@ -813,6 +813,21 @@ Describe 'Uninstall rendered regression' {
         }
     }
 
+    It 'selects the only app a search matches' {
+        Mock Clear-Host {}
+        Mock Write-Host {}
+        Mock Get-TerminalSize { @{Width=80;Height=24} }
+        Mock Read-Host { 'Clash' }
+        $script:MenuKeys = [System.Collections.Queue]::new()
+        foreach ($key in 'Oem2', 'Spacebar', 'Enter') { $script:MenuKeys.Enqueue([pscustomobject]@{Key=$key; KeyChar=' '}) }
+        Mock Read-MenuKey { $script:MenuKeys.Dequeue() }
+        $selected = @(Show-AppSelectionMenu -Apps @(
+            [pscustomobject]@{Name='Clash Party';SizeHuman='683.5MB';SizeKB=699904},
+            [pscustomobject]@{Name='WeChat';SizeHuman='875.5MB';SizeKB=896512}))
+        $selected.Count | Should -Be 1
+        $selected[0].Name | Should -Be 'Clash Party'
+    }
+
     It 'publishes a measured Store size without ancestor deletion access' {
         $folder = New-TestFolder 'store-inventory'
         Mock Write-Info {}

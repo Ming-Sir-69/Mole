@@ -969,7 +969,9 @@ function Show-AppSelectionMenu {
                     try { [Console]::CursorVisible = $false } catch { }
 
                     if ($searchTerm) {
-                        $filteredApps = $Apps | Where-Object { $_.Name -like "*$searchTerm*" }
+                        # One match is a single object, and strict mode has no
+                        # .Count on it; keep the filtered list an array.
+                        $filteredApps = @($Apps | Where-Object { $_.Name -like "*$searchTerm*" })
                     }
                     else {
                         $filteredApps = $Apps
