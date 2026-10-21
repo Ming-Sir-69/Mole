@@ -38,7 +38,9 @@ $libDir = Join-Path (Split-Path -Parent $scriptDir) "lib"
 
 $script:CacheDir = "$env:USERPROFILE\.cache\mole"
 # v3: Store display sizing does not require deletion authority over ancestors.
-$script:AppCacheFile = "$script:CacheDir\app_scan_cache_v3.json"
+# v4: written as UTF-8. v3 used the ANSI code page, which turned non-ASCII
+# app names into question marks, so a v3 file is not read as UTF-8.
+$script:AppCacheFile = "$script:CacheDir\app_scan_cache_v4.json"
 $script:CacheTTLHours = 24
 
 # A vendor EstimatedSize above this is measured against the install folder (#1717).
@@ -713,7 +715,7 @@ function Get-InstalledApplications {
         if ($cacheAge.TotalHours -lt $script:CacheTTLHours) {
             Write-Debug "Loading from cache..."
             try {
-                $cached = Get-Content $script:AppCacheFile | ConvertFrom-Json
+                $cached = [System.IO.File]::ReadAllText($script:AppCacheFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json
                 return $cached
             }
             catch {
@@ -824,7 +826,9 @@ function Get-InstalledApplications {
     if (-not (Test-Path $script:CacheDir)) {
         New-Item -ItemType Directory -Path $script:CacheDir -Force | Out-Null
     }
-    $apps | ConvertTo-Json -Depth 5 | Set-Content $script:AppCacheFile
+    # UTF-8 explicitly: Set-Content in Windows PowerShell 5.1 writes the ANSI
+    # code page, which cannot hold most non-ASCII app names.
+    [System.IO.File]::WriteAllText($script:AppCacheFile, [string]($apps | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding $false))
 
     return $apps
 }

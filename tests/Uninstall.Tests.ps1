@@ -602,6 +602,20 @@ Describe "Scanning installed apps" {
         @($apps | ForEach-Object { $_.Name }) | Should -Be @("Visible App")
     }
 
+    It "Keeps a non-ASCII app name through the cache" {
+        # Set-Content in Windows PowerShell 5.1 wrote the ANSI code page, so on
+        # a Western system this name came back from the cache as question marks.
+        $name = "测试应用 Über " + [char]::ConvertFromUtf32(0x1F680)
+        $script:RegistryFixtures = @(
+            [PSCustomObject]@{ PSPath = "HKLM-test\cjk"; PSChildName = "cjk"; DisplayName = $name; UninstallString = "C:\x\u.exe"; EstimatedSize = 1024 }
+        )
+
+        @(Get-InstalledApplications -ForceRescan)[0].Name | Should -BeExactly $name
+        $script:RegistryFixtures = @()
+        @(Get-InstalledApplications)[0].Name | Should -BeExactly $name
+        [System.IO.File]::ReadAllText($script:AppCacheFile, [System.Text.Encoding]::UTF8) | Should -Not -Match '\?\?'
+    }
+
     It "Reads the per-user 32-bit Uninstall key too" {
         Get-InstalledApplications -ForceRescan | Out-Null
 
