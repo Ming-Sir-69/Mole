@@ -427,8 +427,9 @@ Describe 'Owner cache cleanup whitelist' {
         Mock Get-WhitelistState { $script:FixtureWhitelistState }
         Invoke-MoleOwnerCacheCleanup -Name 'npm' -Query @('config','get','cache') -Arguments @('cache','clean','--force') -Description 'fixture'
         Should -Invoke Invoke-MoleOwnerProcess -Times 1
-        # The root check, the tree walk and the boundary recheck.
-        Should -Invoke Get-WhitelistState -Times 3 -Exactly
+        # The root check, the tree walk, the boundary recheck and the walk that
+        # measures what the owner removed: one per pass, never one per entry.
+        Should -Invoke Get-WhitelistState -Times 4 -Exactly
     }
     It 'Keeps a cache containing a specifically whitelisted child' {
         $child = Join-Path $script:OwnerCache 'keep.txt'
