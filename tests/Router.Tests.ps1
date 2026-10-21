@@ -88,6 +88,14 @@ Describe "mole.ps1 command router" {
         $script:MoleExitCode | Should -Be 0
     }
 
+    It "Maps <Flag> to <Expected> on the real <Name> command" -ForEach @(
+        @{ Name = "uninstall"; Flag = "list"; Expected = "List" },
+        @{ Name = "analyze"; Flag = "json"; Expected = "Json" }
+    ) {
+        $declared = (Get-Command -Name (Join-Path $script:WindowsDir "bin\$Name.ps1") -CommandType ExternalScript).Parameters
+        Resolve-CommandParameterName -Parameters $declared -Flag $Flag | Should -Be $Expected
+    }
+
     It "Shows help for every real command" -ForEach @(
         "clean", "uninstall", "optimize", "analyze", "status", "purge", "update", "remove"
     ) {
@@ -249,5 +257,71 @@ Describe "Analyze debug routing" {
             [System.IO.File]::ReadAllText($log) | Should -Match 'Command: mo analyze .*--debug'
         }
         finally { $env:USERPROFILE = $previous }
+    }
+}
+
+Describe "Machine-readable output through installed launcher call shapes" {
+    BeforeAll {
+        function Invoke-MoleShape {
+            param([string]$Shape, [string]$Mole, [string[]]$Arguments)
+            # Assigning native output captures stdout only, the redirected
+            # stream an agent reads; stderr stays out of the JSON.
+            if ($Shape -eq "File") {
+                $lines = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Mole @Arguments
+            }
+            else {
+                $quoted = @($Arguments | ForEach-Object { "'" + $_.Replace("'", "''") + "'" }) -join " "
+                $command = "& '" + $Mole.Replace("'", "''") + "' $quoted; exit `$LASTEXITCODE"
+                $lines = & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command
+            }
+            [pscustomobject]@{ Text = (@($lines) -join "`n"); ExitCode = $LASTEXITCODE }
+        }
+    }
+
+    It "Prints the cached uninstall inventory as JSON through <_>" -ForEach @("File", "Command") {
+        $profile = Join-Path $TestDrive ("list-" + $_)
+        $cacheDir = Join-Path $profile ".cache\mole"
+        New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        # A fresh cache stands in for the registry, so the child never scans this machine.
+        $cache = @(
+            [ordered]@{ Name = "Cached Tool"; Publisher = "Contoso"; Version = "3.0"; SizeKB = 1024; SizeHuman = "1.0MB"; SizeChecked = $true
+                InstallLocation = "C:\Tools\Cached"; RegistryKey = "HKLM-test\cached"; PackageFullName = $null; Source = "Registry" }
+        )
+        [System.IO.File]::WriteAllText((Join-Path $cacheDir "app_scan_cache_v3.json"), (ConvertTo-Json -InputObject $cache -Depth 3))
+        $saved = $env:USERPROFILE
+        try {
+            $env:USERPROFILE = $profile
+            $result = Invoke-MoleShape -Shape $_ -Mole (Join-Path $script:WindowsDir "mole.ps1") -Arguments @("uninstall", "--list")
+        }
+        finally { $env:USERPROFILE = $saved }
+
+        $result.ExitCode | Should -Be 0
+        $result.Text.TrimStart().StartsWith("[") | Should -BeTrue
+        $parsed = ConvertFrom-Json -InputObject $result.Text
+        @($parsed).Count | Should -Be 1
+        @($parsed)[0].id | Should -BeExactly "registry:HKLM-test\cached"
+        @($parsed)[0].size_bytes | Should -Be 1048576
+        Test-Path -LiteralPath (Join-Path $profile ".config\mole\operations.log") | Should -BeFalse
+    }
+
+    It "Passes --json and the path to the analyzer through <_>" -ForEach @("File", "Command") {
+        $root = Join-Path $TestDrive ("analyze-" + $_)
+        New-Item -ItemType Directory -Path (Join-Path $root "bin") -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "mole.ps1") -Destination $root
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "VERSION") -Destination $root
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "lib") -Destination $root -Recurse
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "bin\analyze.ps1") -Destination (Join-Path $root "bin")
+        # A stand-in analyzer that reports what it was given.
+        $stub = Join-Path $root "bin\analyze-stub.cmd"
+        Set-Content -LiteralPath $stub -Value "@echo off`r`necho ARGS=%*`r`necho TARGET=%MO_ANALYZE_PATH%" -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $root "lib\core\tui_binaries.ps1") -Value "function Ensure-TuiBinary { param(`$Name, `$WindowsDir, `$DestinationPath, `$SourcePath) '$stub' }" -Encoding ASCII
+        $target = Join-Path $TestDrive "scan target"
+        New-Item -ItemType Directory -Path $target -Force | Out-Null
+
+        $result = Invoke-MoleShape -Shape $_ -Mole (Join-Path $root "mole.ps1") -Arguments @("analyze", "--json", $target)
+
+        $result.ExitCode | Should -Be 0
+        $result.Text | Should -Match '(?m)^ARGS=--json\s*$'
+        $result.Text | Should -Match ('(?m)^TARGET=' + [regex]::Escape($target) + '\s*$')
     }
 }

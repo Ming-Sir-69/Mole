@@ -77,6 +77,8 @@ mo clean --whitelist         # 보호할 경로 관리
 mo clean --system            # 시스템 수준 정리 포함(관리자 권한으로 실행)
 mo purge --paths             # 프로젝트 검사 디렉터리 구성
 mo analyze D:\               # 다른 드라이브 분석
+mo uninstall --list          # 설치된 앱 목록 표시, 파이프로 보내면 JSON
+mo analyze --json D:\        # 디스크 분석을 JSON으로 출력
 ```
 
 <details>
@@ -240,6 +242,16 @@ mo purge --dry-run
 ```
 
 프로젝트 폴더에서 빌드 결과물(`node_modules`, `target`, `build`, `dist`, `venv` 등)을 찾아, 정리할 프로젝트를 직접 선택할 수 있게 합니다. 직접 선택하기 전에는 아무것도 선택되어 있지 않습니다. 검사할 폴더는 `mo purge --paths`로 구성하세요.
+
+## 에이전트 스킬
+
+Mole은 Claude Code, Codex, Cursor 등 코딩 에이전트용 스킬을 제공하며 macOS와 Windows CLI를 모두 지원합니다. 에이전트는 Mole의 JSON 출력을 읽고, 무엇이든 삭제하기 전에 `--dry-run`으로 목록을 먼저 보여 주며, 앱 제거와 관리자 권한이 필요한 단계는 직접 터미널에서 실행하도록 남겨 둡니다.
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+설치 후에는 "디스크를 뭐가 차지하고 있어?"처럼 평소 말투로 물어보면 됩니다. 업데이트는 `npx skills update -g -y`로 합니다.
 
 ## 커뮤니티
 

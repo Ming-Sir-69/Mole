@@ -12,6 +12,8 @@ param(
     
     [Alias('r')]
     [switch]$Rescan,
+
+    [switch]$List,
     
     [Alias('h')]
     [switch]$ShowHelp
@@ -56,6 +58,7 @@ function Show-UninstallHelp {
     Write-Host "$esc[33mOptions:$esc[0m"
     Write-Host "  --dry-run    Show what would be uninstalled, change nothing"
     Write-Host "  --rescan     Force rescan of installed applications"
+    Write-Host "  --list       List installed applications and exit (JSON when piped)"
     Write-Host "  --debug      Enable debug logging"
     Write-Host "  --help       Show this help message"
     Write-Host ""
@@ -468,6 +471,15 @@ function Test-ListableAppxPackage {
     return $true
 }
 
+# The size the menu shows: a 0B that was never measured is Unknown, not empty.
+function Get-AppDisplaySize {
+    param($App)
+
+    $size = [string](Get-MoleProperty $App 'SizeHuman')
+    if (-not $size -or ($size -eq '0B' -and -not (Get-MoleProperty $App 'SizeChecked'))) { return 'Unknown' }
+    return $size
+}
+
 # Identifies an app in the menu: two different apps may share one display name.
 function Get-AppSelectionKey {
     param($App)
@@ -691,7 +703,7 @@ function Get-InstalledApplications {
     .SYNOPSIS
         Scan and return all installed applications
     #>
-    param([switch]$ForceRescan)
+    param([switch]$ForceRescan, [switch]$Quiet)
 
     # Check cache
     if (-not $ForceRescan -and (Test-Path $script:AppCacheFile)) {
@@ -710,7 +722,8 @@ function Get-InstalledApplications {
         }
     }
 
-    Write-Info "Scanning installed applications..."
+    # --list output may be redirected: Write-Host and progress would reach it.
+    if (-not $Quiet) { Write-Info "Scanning installed applications..." }
 
     $apps = @()
 
@@ -727,7 +740,9 @@ function Get-InstalledApplications {
 
     foreach ($path in $registryPaths) {
         $count++
-        Write-Progress -Activity "Scanning applications" -Status "Registry path $count of $total" -PercentComplete (($count / $total) * 50)
+        if (-not $Quiet) {
+            Write-Progress -Activity "Scanning applications" -Status "Registry path $count of $total" -PercentComplete (($count / $total) * 50)
+        }
 
         try {
             $regItems = @(Get-ItemProperty -Path $path -ErrorAction SilentlyContinue)
@@ -753,7 +768,9 @@ function Get-InstalledApplications {
     $apps = @(Merge-InstalledApps -Apps $apps)
 
     # UWP / Store Apps
-    Write-Progress -Activity "Scanning applications" -Status "Scanning Windows Apps" -PercentComplete 75
+    if (-not $Quiet) {
+        Write-Progress -Activity "Scanning applications" -Status "Scanning Windows Apps" -PercentComplete 75
+    }
 
     try {
         $uwpApps = @(Get-AppxPackage -ErrorAction SilentlyContinue |
@@ -798,7 +815,7 @@ function Get-InstalledApplications {
         Write-Debug "Could not enumerate UWP apps: $_"
     }
 
-    Write-Progress -Activity "Scanning applications" -Completed
+    if (-not $Quiet) { Write-Progress -Activity "Scanning applications" -Completed }
 
     # Sort by size (largest first)
     $apps = $apps | Sort-Object -Property SizeKB -Descending
@@ -877,9 +894,7 @@ function Show-AppSelectionMenu {
                 }
 
                 # App info uses terminal cells for both truncation and padding.
-                $size = $app.SizeHuman
-                if (-not $size -or ($size -eq '0B' -and -not (Get-MoleProperty $app 'SizeChecked'))) { $size = 'Unknown' }
-                $entry = Format-SizeListEntry -Name $app.Name -Size $size
+                $entry = Format-SizeListEntry -Name $app.Name -Size (Get-AppDisplaySize $app)
                 Write-Host "  $checkbox $entry" -NoNewline
 
                 if ($isCurrent) {
@@ -993,6 +1008,71 @@ function Show-AppSelectionMenu {
     finally {
         try { [Console]::CursorVisible = $true } catch { }
     }
+}
+
+# ============================================================================
+# Read-only Listing
+# ============================================================================
+
+# Separate so tests can choose the output form without redirecting the host.
+function Test-UninstallListAsJson {
+    return [Console]::IsOutputRedirected
+}
+
+# The menu's inventory as records for scripts and agents, field for field with
+# the macOS CLI where Windows has the same fact. id is the menu's selection key.
+function ConvertTo-UninstallListRecord {
+    param($App)
+
+    $display = Get-AppDisplaySize $App
+    $sizeBytes = $null
+    if ($display -ne 'Unknown') { $sizeBytes = [long](Get-MoleProperty $App 'SizeKB') * 1024 }
+    $location = [string](Get-MoleProperty $App 'InstallLocation')
+    return [ordered]@{
+        name       = [string]$App.Name
+        id         = Get-AppSelectionKey $App
+        source     = [string](Get-MoleProperty $App 'Source')
+        version    = $(if (Get-MoleProperty $App 'Version') { [string](Get-MoleProperty $App 'Version') } else { $null })
+        publisher  = $(if (Get-MoleProperty $App 'Publisher') { [string](Get-MoleProperty $App 'Publisher') } else { $null })
+        path       = $location
+        size       = $display
+        size_bytes = $sizeBytes
+    }
+}
+
+# A JSON array whatever the count. Non-ASCII characters are written as \u
+# escapes, so a console code page cannot change an app name on the way out.
+function ConvertTo-UninstallListJson {
+    param([array]$Apps)
+
+    $records = @(foreach ($app in @($Apps)) { if ($null -ne $app) { ConvertTo-UninstallListRecord $app } })
+    if ($records.Count -eq 0) { return '[]' }
+    $json = ConvertTo-Json -InputObject $records -Depth 3
+    return [regex]::Replace($json, '[^\x00-\x7F]', { param($m) '\u{0:x4}' -f [int][char]$m.Value })
+}
+
+# mo uninstall --list: print the inventory and return. It runs no uninstaller,
+# asks for no elevation and writes no operations.log line; like the menu it
+# reuses the 24-hour app cache unless --rescan is given.
+function Show-UninstallList {
+    param([switch]$ForceRescan)
+
+    $apps = @(Get-InstalledApplications -ForceRescan:$ForceRescan -Quiet)
+    if (Test-UninstallListAsJson) {
+        Write-Output (ConvertTo-UninstallListJson -Apps $apps)
+        return
+    }
+    if ($apps.Count -eq 0) {
+        Write-Host "No applications found."
+        return
+    }
+    Write-Host ""
+    foreach ($app in $apps) {
+        Write-Host ("  " + (Format-SizeListEntry -Name $app.Name -Size (Get-AppDisplaySize $app)))
+    }
+    Write-Host ""
+    Write-Host "$($apps.Count) application(s)"
+    Write-Host ""
 }
 
 # ============================================================================
@@ -1168,6 +1248,12 @@ function Main {
     # Show help
     if ($ShowHelp) {
         Show-UninstallHelp
+        return
+    }
+
+    # Read-only: before dry-run setup, the screen clear and any uninstaller.
+    if ($List) {
+        Show-UninstallList -ForceRescan:$Rescan
         return
     }
 

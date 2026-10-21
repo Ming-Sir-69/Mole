@@ -77,6 +77,8 @@ mo clean --whitelist         # Gérer les chemins protégés
 mo clean --system            # Inclure le nettoyage au niveau système (exécuter en tant qu'administrateur)
 mo purge --paths             # Configurer les dossiers de scan de projets
 mo analyze D:\               # Analyser un autre disque
+mo uninstall --list          # Lister les apps installées, en JSON via un pipe
+mo analyze --json D:\        # Rapport disque au format JSON
 ```
 
 <details>
@@ -240,6 +242,16 @@ mo purge --dry-run
 ```
 
 Repère les artefacts de build (`node_modules`, `target`, `build`, `dist`, `venv`, et plus) dans vos dossiers de projets et vous laisse choisir les projets à nettoyer ; rien n'est sélectionné tant que vous n'avez pas choisi. Configurez les dossiers analysés avec `mo purge --paths`.
+
+## Skill pour agents
+
+Mole fournit un skill pour Claude Code, Codex, Cursor et les autres agents de code, valable pour la CLI macOS comme pour la CLI Windows. Avec lui, un agent lit la sortie JSON de Mole, vous montre chaque nettoyage avec `--dry-run` avant de supprimer quoi que ce soit, et vous laisse lancer vous-même les désinstallations d'apps et les étapes administrateur dans votre terminal.
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+Ensuite, posez simplement la question, par exemple « qu'est-ce qui occupe mon disque ? ». Mise à jour avec `npx skills update -g -y`.
 
 ## Communauté
 

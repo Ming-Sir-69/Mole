@@ -77,6 +77,8 @@ mo clean --whitelist         # 管理受保护的路径
 mo clean --system            # 包含系统级清理（需以管理员身份运行）
 mo purge --paths             # 配置项目扫描目录
 mo analyze D:\               # 分析另一块磁盘
+mo uninstall --list          # 列出已安装应用，管道输出时为 JSON
+mo analyze --json D:\        # 以 JSON 输出磁盘分析
 ```
 
 <details>
@@ -240,6 +242,16 @@ mo purge --dry-run
 ```
 
 在你的项目目录里找出构建产物（`node_modules`、`target`、`build`、`dist`、`venv` 等），由你挑选要清理的项目，选择之前什么都不会勾选，扫描的目录可以用 `mo purge --paths` 配置。
+
+## Agent Skill
+
+Mole 带了一个给 Claude Code、Codex、Cursor 等编程 Agent 用的 skill，macOS 和 Windows 两个 CLI 都能用。装上后 Agent 会读 Mole 的 JSON 输出，删东西前先用 `--dry-run` 把清单给你看，卸载 App 和要管理员权限的步骤留给你在自己的终端里跑。
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+装好后直接问「什么占了我的磁盘」就行，更新用 `npx skills update -g -y`。
 
 ## 社区反馈
 

@@ -77,6 +77,8 @@ mo clean --whitelist         # Geschützte Pfade verwalten
 mo clean --system            # Systembereinigung einschließen (als Administrator ausführen)
 mo purge --paths             # Projekt-Suchpfade konfigurieren
 mo analyze D:\               # Anderes Laufwerk analysieren
+mo uninstall --list          # Installierte Apps auflisten, per Pipe als JSON
+mo analyze --json D:\        # Festplattenbericht als JSON
 ```
 
 <details>
@@ -240,6 +242,16 @@ mo purge --dry-run
 ```
 
 Findet Build-Artefakte (`node_modules`, `target`, `build`, `dist`, `venv` und mehr) in deinen Projektordnern und lässt dich auswählen, welche Projekte bereinigt werden; solange du nichts wählst, ist nichts ausgewählt. Die durchsuchten Ordner konfigurierst du mit `mo purge --paths`.
+
+## Agent-Skill
+
+Mole bringt einen Skill für Claude Code, Codex, Cursor und andere Coding-Agents mit, für die macOS- und die Windows-CLI. Damit liest ein Agent die JSON-Ausgabe von Mole, zeigt dir jede Bereinigung zuerst mit `--dry-run`, bevor etwas entfernt wird, und überlässt App-Deinstallationen und Schritte mit Administratorrechten dir in deinem eigenen Terminal.
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+Danach fragst du einfach in eigenen Worten, etwa "Was belegt meinen Speicher?". Aktualisieren mit `npx skills update -g -y`.
 
 ## Community
 

@@ -620,6 +620,8 @@ function Get-MoleInstallNestedFiles {
         "cmd\analyze\format.go"
         "cmd\analyze\format_test.go"
         "cmd\analyze\heap.go"
+        "cmd\analyze\json.go"
+        "cmd\analyze\json_test.go"
         "cmd\analyze\lifecycle_test.go"
         "cmd\analyze\live_config.go"
         "cmd\analyze\live_scan.go"

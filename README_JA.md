@@ -77,6 +77,8 @@ mo clean --whitelist         # 保護するパスの管理
 mo clean --system            # システム領域のクリーンも実行（管理者として実行）
 mo purge --paths             # プロジェクト検索ディレクトリの設定
 mo analyze D:\               # 別のドライブを分析
+mo uninstall --list          # インストール済みアプリを一覧表示（パイプ時はJSON）
+mo analyze --json D:\        # ディスク分析をJSONで出力
 ```
 
 <details>
@@ -240,6 +242,16 @@ mo purge --dry-run
 ```
 
 プロジェクトフォルダ内のビルド生成物（`node_modules`、`target`、`build`、`dist`、`venv` など）を検出し、整理するプロジェクトを選べます。選択するまでは何も選ばれません。スキャン対象のフォルダは `mo purge --paths` で設定します。
+
+## エージェントスキル
+
+Mole には Claude Code、Codex、Cursor などのコーディングエージェント向けのスキルがあり、macOS 版と Windows 版の両方の CLI に対応しています。エージェントは Mole の JSON 出力を読み、削除の前に必ず `--dry-run` で一覧を見せます。アプリのアンインストールと管理者権限が必要な手順は、あなた自身のターミナルで実行するよう案内します。
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+あとは「ディスクを何が使っている？」のように普通に聞くだけです。更新は `npx skills update -g -y` です。
 
 ## コミュニティ
 

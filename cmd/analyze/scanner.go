@@ -171,6 +171,18 @@ func isVolumeRoot(path string) bool {
 // largest maxEntries of them plus the largest files found below root.
 // Directory links (junctions, symbolic links) are listed but never followed.
 func scanPathConcurrent(ctx context.Context, root string, limiter *scanLimiter, filesScanned, dirsScanned, bytesScanned *int64, currentPath *atomic.Value) (scanResult, error) {
+	return scanPathConcurrentWithLimit(ctx, root, maxEntries, limiter, filesScanned, dirsScanned, bytesScanned, currentPath)
+}
+
+// scanPathConcurrentAllEntries is scanPathConcurrent without the entry cap,
+// for the JSON output, which lists every immediate child of root.
+func scanPathConcurrentAllEntries(ctx context.Context, root string, filesScanned, dirsScanned, bytesScanned *int64, currentPath *atomic.Value) (scanResult, error) {
+	return scanPathConcurrentWithLimit(ctx, root, 0, nil, filesScanned, dirsScanned, bytesScanned, currentPath)
+}
+
+// scanPathConcurrentWithLimit keeps the largest entryLimit children, or every
+// child when entryLimit is zero or less.
+func scanPathConcurrentWithLimit(ctx context.Context, root string, entryLimit int, limiter *scanLimiter, filesScanned, dirsScanned, bytesScanned *int64, currentPath *atomic.Value) (scanResult, error) {
 	if err := ctx.Err(); err != nil {
 		return scanResult{}, err
 	}
@@ -203,6 +215,8 @@ func scanPathConcurrent(ctx context.Context, root string, limiter *scanLimiter, 
 		}
 	}
 
+	collectAllEntries := entryLimit <= 0
+	var allEntries []dirEntry
 	entriesHeap := &entryHeap{}
 	heap.Init(entriesHeap)
 	largeFilesHeap := &largeFileHeap{}
@@ -218,7 +232,9 @@ func scanPathConcurrent(ctx context.Context, root string, limiter *scanLimiter, 
 	go func() {
 		defer collectorWg.Done()
 		for entry := range entryChan {
-			if entriesHeap.Len() < maxEntries {
+			if collectAllEntries {
+				allEntries = append(allEntries, entry)
+			} else if entriesHeap.Len() < entryLimit {
 				heap.Push(entriesHeap, entry)
 			} else if entry.Size > (*entriesHeap)[0].Size {
 				heap.Pop(entriesHeap)
@@ -350,9 +366,15 @@ func scanPathConcurrent(ctx context.Context, root string, limiter *scanLimiter, 
 		return scanResult{}, err
 	}
 
-	entries := make([]dirEntry, entriesHeap.Len())
-	for i := range slices.Backward(entries) {
-		entries[i] = heap.Pop(entriesHeap).(dirEntry)
+	var entries []dirEntry
+	if collectAllEntries {
+		entries = allEntries
+		sortDirEntriesBySize(entries)
+	} else {
+		entries = make([]dirEntry, entriesHeap.Len())
+		for i := range slices.Backward(entries) {
+			entries[i] = heap.Pop(entriesHeap).(dirEntry)
+		}
 	}
 	largeFiles := make([]fileEntry, largeFilesHeap.Len())
 	for i := range slices.Backward(largeFiles) {

@@ -72,6 +72,7 @@ Describe "Uninstall selection under strict mode" {
         $DebugMode = $false
         $ShowHelp = $false
         $Rescan = $false
+        $List = $false
         $script:Icons = @{ List = "-" }
         $script:MoleDryRunMode = $false
         $script:TestApps = @(
@@ -874,5 +875,166 @@ Describe 'Registered Proton Pass uninstall compatibility' {
         $script:Proton.$Field = $Value
         $launch = Get-UninstallLaunch -App $script:Proton
         $launch.Kind | Should -Be 'quiet'
+    }
+}
+
+Describe "mo uninstall --list" {
+    BeforeAll {
+        $DryRun = $false
+        $DebugMode = $false
+        $ShowHelp = $false
+        $Rescan = $false
+        $List = $true
+        $base = "Microsoft.PowerShell.Core\Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+        $script:ListRegistryApp = [PSCustomObject]@{
+            Name = "Contoso Editor"; Publisher = "Contoso"; Version = "2.1"; SizeKB = 2048; SizeHuman = "2.0MB"
+            SizeChecked = $true; InstallLocation = "C:\Program Files\Contoso Editor"; RegistryKey = "$base\ContosoEditor"
+            PackageFullName = $null; Source = "Registry"
+        }
+        $script:ListStoreApp = [PSCustomObject]@{
+            Name = "Contoso Notes"; Publisher = "CN=Contoso"; Version = "1.0.0.0"; SizeKB = 0; SizeHuman = "0B"
+            SizeChecked = $false; InstallLocation = "C:\Program Files\WindowsApps\Contoso.Notes_1.0.0.0_x64__abc"
+            RegistryKey = $null; PackageFullName = "Contoso.Notes_1.0.0.0_x64__abc"; Source = "WindowsStore"
+        }
+    }
+
+    BeforeEach {
+        Mock Test-UninstallListAsJson { $true }
+        Mock Get-InstalledApplications { @($script:ListRegistryApp, $script:ListStoreApp) }
+        Mock Clear-Host { throw "--list must not clear the screen" }
+        Mock Show-AppSelectionMenu { throw "--list must not open the menu" }
+        Mock Read-Host { throw "--list must not prompt" }
+        Mock Uninstall-SelectedApps { throw "--list must not uninstall" }
+        Mock Start-Process { throw "--list must not start a process" }
+        Mock Remove-AppxPackage { throw "--list must not remove a package" }
+        Mock Write-MoleOperation { throw "--list must not write operations.log" }
+        Mock Add-MoleOperationText { throw "--list must not write operations.log" }
+    }
+
+    It "Prints the inventory as a JSON array when output is redirected" {
+        $text = (& { Set-StrictMode -Version Latest; Main }) -join "`n"
+
+        $text.TrimStart().StartsWith("[") | Should -BeTrue
+        $parsed = ConvertFrom-Json -InputObject $text
+        $records = @($parsed)
+        $records.Count | Should -Be 2
+        $records[0].name | Should -BeExactly "Contoso Editor"
+        $records[0].id | Should -BeExactly "registry:$($script:ListRegistryApp.RegistryKey)"
+        $records[0].source | Should -BeExactly "Registry"
+        $records[0].version | Should -BeExactly "2.1"
+        $records[0].publisher | Should -BeExactly "Contoso"
+        $records[0].path | Should -BeExactly "C:\Program Files\Contoso Editor"
+        $records[0].size | Should -BeExactly "2.0MB"
+        $records[0].size_bytes | Should -Be 2097152
+        $records[1].id | Should -BeExactly "package:Contoso.Notes_1.0.0.0_x64__abc"
+        $records[1].source | Should -BeExactly "WindowsStore"
+        $records[1].size | Should -BeExactly "Unknown"
+        $records[1].size_bytes | Should -BeNullOrEmpty
+        Should -Invoke Get-InstalledApplications -Times 1 -Exactly -ParameterFilter { $Quiet -and -not $ForceRescan }
+    }
+
+    It "Keeps a single app inside a JSON array" {
+        Mock Get-InstalledApplications { $script:ListRegistryApp }
+
+        $text = (& { Set-StrictMode -Version Latest; Main }) -join "`n"
+
+        $text.TrimStart().StartsWith("[") | Should -BeTrue
+        $text.TrimEnd().EndsWith("]") | Should -BeTrue
+        $parsed = ConvertFrom-Json -InputObject $text
+        @($parsed).Count | Should -Be 1
+        @($parsed)[0].name | Should -BeExactly "Contoso Editor"
+    }
+
+    It "Prints an empty array for an empty inventory" {
+        Mock Get-InstalledApplications { @() }
+
+        $text = (& { Set-StrictMode -Version Latest; Main }) -join "`n"
+
+        $text | Should -BeExactly "[]"
+    }
+
+    It "Escapes non-ASCII names so the console code page cannot change them" {
+        $name = "Contoso " + [string][char]0x7B14 + [string][char]0x8BB0
+        $app = [PSCustomObject]@{ Name = $name; SizeKB = 4; SizeHuman = "4KB"; SizeChecked = $true; RegistryKey = "HKLM-test\notes"; Source = "Registry" }
+        Mock Get-InstalledApplications { $app }
+
+        $text = (& { Set-StrictMode -Version Latest; Main }) -join "`n"
+
+        $text | Should -Not -Match '[^\x00-\x7F]'
+        $text | Should -Match '\\u7b14\\u8bb0'
+        @(ConvertFrom-Json -InputObject $text)[0].name | Should -BeExactly $name
+        @(ConvertFrom-Json -InputObject $text)[0].path | Should -BeExactly ""
+        @(ConvertFrom-Json -InputObject $text)[0].version | Should -BeNullOrEmpty
+    }
+
+    It "Passes --rescan to the inventory as the menu does" {
+        $Rescan = $true
+        try {
+            $null = & { Set-StrictMode -Version Latest; Main }
+        }
+        finally { $Rescan = $false }
+
+        Should -Invoke Get-InstalledApplications -Times 1 -Exactly -ParameterFilter { $ForceRescan -and $Quiet }
+    }
+
+    It "Lists before dry-run setup even when combined with --dry-run" {
+        $DryRun = $true
+        try {
+            $null = & { Set-StrictMode -Version Latest; Main }
+        }
+        finally { $DryRun = $false }
+
+        Should -Invoke Clear-Host -Times 0 -Exactly
+    }
+
+    It "Prints an aligned table on a console and nothing to the pipeline" {
+        Mock Test-UninstallListAsJson { $false }
+        $script:ListLines = @()
+        Mock Write-Host { $script:ListLines += [string]$Object }
+
+        $output = @(& { Set-StrictMode -Version Latest; Main })
+
+        $output.Count | Should -Be 0
+        $rows = @($script:ListLines | Where-Object { $_ -match 'Contoso' })
+        $rows.Count | Should -Be 2
+        $rows[0] | Should -BeExactly ("  " + (Format-SizeListEntry -Name "Contoso Editor" -Size "2.0MB"))
+        $rows[1] | Should -BeExactly ("  " + (Format-SizeListEntry -Name "Contoso Notes" -Size "Unknown"))
+        $script:ListLines | Should -Contain "2 application(s)"
+    }
+
+    It "Never runs an uninstaller, prompts or writes the log" {
+        $null = & { Set-StrictMode -Version Latest; Main }
+
+        Should -Invoke Start-Process -Times 0 -Exactly
+        Should -Invoke Remove-AppxPackage -Times 0 -Exactly
+        Should -Invoke Uninstall-SelectedApps -Times 0 -Exactly
+        Should -Invoke Show-AppSelectionMenu -Times 0 -Exactly
+        Should -Invoke Read-Host -Times 0 -Exactly
+        Should -Invoke Write-MoleOperation -Times 0 -Exactly
+        Should -Invoke Add-MoleOperationText -Times 0 -Exactly
+    }
+}
+
+Describe "Quiet inventory scan" {
+    BeforeEach {
+        Mock Write-Info { throw "a quiet scan must not write to the host" }
+        Mock Write-Progress { throw "a quiet scan must not report progress" }
+        Mock Get-AppxPackage { @() }
+        Mock Get-AppxPackageManifest { $null }
+        Mock Get-ItemProperty {
+            if ("$Path" -like "HKLM:\SOFTWARE\Microsoft\*") {
+                [PSCustomObject]@{ PSPath = "HKLM-test\quiet"; PSChildName = "quiet"; DisplayName = "Quiet Tool"; UninstallString = "C:\q\u.exe"; EstimatedSize = 1024 }
+            }
+        } -ParameterFilter { "$Path" -like "HK*" }
+        if (Test-Path -LiteralPath $script:AppCacheFile) { Remove-Item -LiteralPath $script:AppCacheFile }
+    }
+
+    It "Scans the same inventory without host output" {
+        $apps = @(Get-InstalledApplications -ForceRescan -Quiet)
+
+        $apps.Count | Should -Be 1
+        $apps[0].Name | Should -BeExactly "Quiet Tool"
+        Should -Invoke Write-Info -Times 0 -Exactly
+        Should -Invoke Write-Progress -Times 0 -Exactly
     }
 }

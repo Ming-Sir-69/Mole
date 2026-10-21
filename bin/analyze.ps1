@@ -10,6 +10,8 @@ param(
     [Alias('h')]
     [switch]$ShowHelp,
 
+    [switch]$Json,
+
     [Alias('d')]
     [switch]$DebugMode
 )
@@ -28,10 +30,11 @@ function Show-AnalyzeHelp {
     Write-Host ""
     Write-Host "$esc[1;35mmo analyze$esc[0m - Interactive disk space analyzer"
     Write-Host ""
-    Write-Host "$esc[33mUsage:$esc[0m mo analyze [path]"
+    Write-Host "$esc[33mUsage:$esc[0m mo analyze [options] [path]"
     Write-Host ""
     Write-Host "$esc[33mOptions:$esc[0m"
     Write-Host "  [path]     Path to analyze (default: overview of folders and drives)"
+    Write-Host "  --json     Output the analysis as JSON instead of the interactive TUI"
     Write-Host "  --help     Show this help message"
     Write-Host ""
     Write-Host "$esc[33mKeybindings:$esc[0m"
@@ -68,8 +71,11 @@ if ($DebugMode) { $env:MOLE_DEBUG = "1" }
 # so a path left in the session by an earlier run must not leak into the next.
 $previousPath = $env:MO_ANALYZE_PATH
 $env:MO_ANALYZE_PATH = $Path
+# --json makes the analyzer print one JSON object and exit without the TUI.
+$binArgs = @()
+if ($Json) { $binArgs += "--json" }
 try {
-    & $binPath
+    & $binPath @binArgs
 }
 finally {
     $env:MO_ANALYZE_PATH = $previousPath
