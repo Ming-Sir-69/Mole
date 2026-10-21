@@ -124,12 +124,14 @@ function Invoke-MoleOwnerCacheCleanup {
         return
     }
     # Query again at the boundary; a changed configuration is not the previewed root.
+    # One fresh whitelist read for the boundary, not one per cache entry.
     $current = Get-MoleOwnerCachePath -Name $Name -Arguments $Query
-    if ($current -ne $path -or -not (Test-SafePath $path) -or
+    $whitelistState = Get-WhitelistState
+    if ($current -ne $path -or -not (Test-SafePath $path -WhitelistState $whitelistState) -or
         -not (Test-MolePathSnapshot $snapshot)) { return }
     foreach ($item in $tree.Items) {
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { return }
-        if (-not (Test-SafePath $item.FullName) -or
+        if (-not (Test-SafePath $item.FullName -WhitelistState $whitelistState) -or
             -not (Test-MolePathSnapshot $item.MolePathSnapshot)) { return }
     }
     $beforeFiles = @($tree.Items | Where-Object { -not $_.PSIsContainer })

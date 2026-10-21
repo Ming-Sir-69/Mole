@@ -420,6 +420,16 @@ Describe 'Owner cache cleanup whitelist' {
         Invoke-MoleOwnerCacheCleanup -Name 'npm' -Query @('config','get','cache') -Arguments @('cache','clean','--force') -Description 'fixture'
         Should -Invoke Invoke-MoleOwnerProcess -Times 1 -ParameterFilter { $TimeoutSeconds -eq 120 }
     }
+    It 'Reads the whitelist once for the boundary recheck, not once per cache entry' {
+        Set-Content -LiteralPath $script:Config.WhitelistFile -Value '# no exclusions'
+        foreach ($i in 1..8) { Set-Content -LiteralPath (Join-Path $script:OwnerCache "entry$i.bin") -Value 'x' }
+        $script:FixtureWhitelistState = Get-WhitelistState
+        Mock Get-WhitelistState { $script:FixtureWhitelistState }
+        Invoke-MoleOwnerCacheCleanup -Name 'npm' -Query @('config','get','cache') -Arguments @('cache','clean','--force') -Description 'fixture'
+        Should -Invoke Invoke-MoleOwnerProcess -Times 1
+        # The root check, the tree walk and the boundary recheck.
+        Should -Invoke Get-WhitelistState -Times 3 -Exactly
+    }
     It 'Keeps a cache containing a specifically whitelisted child' {
         $child = Join-Path $script:OwnerCache 'keep.txt'
         Set-Content -LiteralPath $child -Value 'keep'

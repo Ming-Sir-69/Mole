@@ -512,6 +512,51 @@ Describe "File Operations Module" {
             }
         }
 
+        It "Reads the whitelist once for a whole tree removal through <_>" -ForEach @("Remove-SafeDirectoryTree", "Remove-SafeItem", "Remove-SafeItems") {
+            # Every rule resolves through the filesystem; once per child made a
+            # large cache folder pay that lookup for each of its entries.
+            $treeRoot = Join-Path $script:TestDir ("whitelist_once_" + [guid]::NewGuid().ToString("N"))
+            New-Item -ItemType Directory -Path (Join-Path $treeRoot "nested") -Force | Out-Null
+            foreach ($i in 1..6) { Set-Content -LiteralPath (Join-Path $treeRoot "nested\file$i.txt") -Value "x" }
+            $script:FixtureWhitelistState = Get-WhitelistState
+            Mock Get-WhitelistState { $script:FixtureWhitelistState }
+            try {
+                switch ($_) {
+                    "Remove-SafeDirectoryTree" { Remove-SafeDirectoryTree -Path $treeRoot | Should -BeTrue }
+                    "Remove-SafeItem" { Remove-SafeItem -Path $treeRoot -Description "Tree" | Should -BeTrue }
+                    "Remove-SafeItems" { Remove-SafeItems -Paths @($treeRoot) -Description "Tree" }
+                }
+                Test-Path -LiteralPath $treeRoot | Should -BeFalse
+                Should -Invoke Get-WhitelistState -Times 1 -Exactly
+            }
+            finally {
+                if (Test-Path $treeRoot) { Remove-Item -Path $treeRoot -Recurse -Force -ErrorAction SilentlyContinue }
+            }
+        }
+
+        It "Still refuses a whitelisted child with the single whitelist read" {
+            $treeRoot = Join-Path $script:TestDir ("whitelist_child_" + [guid]::NewGuid().ToString("N"))
+            $kept = Join-Path $treeRoot "keep\kept.txt"
+            New-Item -ItemType Directory -Path (Split-Path -Parent $kept) -Force | Out-Null
+            Set-Content -LiteralPath $kept -Value "keep"
+            Set-Content -LiteralPath (Join-Path $treeRoot "other.txt") -Value "x"
+            $savedWhitelist = $script:Config.WhitelistFile
+            try {
+                $script:Config.WhitelistFile = Join-Path $script:TestDir ("whitelist_" + [guid]::NewGuid().ToString("N") + ".txt")
+                Set-Content -LiteralPath $script:Config.WhitelistFile -Value (Split-Path -Parent $kept)
+                $script:FixtureWhitelistState = Get-WhitelistState
+                Mock Get-WhitelistState { $script:FixtureWhitelistState }
+
+                Remove-SafeDirectoryTree -Path $treeRoot | Should -BeFalse
+                Test-Path -LiteralPath $kept | Should -BeTrue
+                Should -Invoke Get-WhitelistState -Times 1 -Exactly
+            }
+            finally {
+                $script:Config.WhitelistFile = $savedWhitelist
+                if (Test-Path $treeRoot) { Remove-Item -Path $treeRoot -Recurse -Force -ErrorAction SilentlyContinue }
+            }
+        }
+
         It "Should not partially remove a directory tree when a protected child is present" {
             $treeRoot = Join-Path $script:TestDir "protected_child_tree"
             $safeFile = Join-Path $treeRoot "safe.txt"

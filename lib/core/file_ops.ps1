@@ -317,7 +317,10 @@ function Get-SafeDirectoryTreeItems {
     #>
     param(
         [Parameter(Mandatory)]
-        [string]$Path
+        [string]$Path,
+
+        # A caller that already read the whitelist for this removal passes it.
+        $WhitelistState = $null
     )
 
     $rootSnapshot = Get-MolePathSnapshot -Path $Path -AllowLeafLink
@@ -344,7 +347,7 @@ function Get-SafeDirectoryTreeItems {
     }
 
     # One whitelist read for the whole tree, not one per child.
-    $whitelistState = Get-WhitelistState
+    $whitelistState = if ($null -ne $WhitelistState) { $WhitelistState } else { Get-WhitelistState }
     foreach ($item in $items) {
         if (-not (Test-SafePath -Path $item.FullName -WhitelistState $whitelistState)) {
             Write-Debug "Protected/whitelisted child rejected before recursive removal: $($item.FullName)"
@@ -386,10 +389,16 @@ function Remove-SafeDirectoryTree {
         [hashtable]$ValidatedTree = $null,
 
         # Filled with how far a removal got, so an incomplete one can be recorded.
-        [hashtable]$Report = $null
+        [hashtable]$Report = $null,
+
+        # The whitelist the caller read for this removal. Without one the tree
+        # reads it once here; resolving every rule again for each child made a
+        # large cache folder pay one filesystem lookup per rule per entry.
+        $WhitelistState = $null
     )
 
     if ($null -eq $Report) { $Report = @{} }
+    if ($null -eq $WhitelistState) { $WhitelistState = Get-WhitelistState }
     $Report.Removed = 0
     $Report.Total = 0
     $Report.Reason = ""
@@ -397,10 +406,10 @@ function Remove-SafeDirectoryTree {
         $ValidatedTree
     }
     else {
-        Get-SafeDirectoryTreeItems -Path $Path
+        Get-SafeDirectoryTreeItems -Path $Path -WhitelistState $WhitelistState
     }
 
-    if (-not $tree.Success -or -not (Test-SafePath $Path) -or
+    if (-not $tree.Success -or -not (Test-SafePath $Path -WhitelistState $WhitelistState) -or
         -not (Test-MolePathSnapshot $tree.RootSnapshot)) {
         $Report.Reason = if ($tree['Reason']) { "refused: $($tree['Reason'])" } else { "refused: the folder changed or is protected" }
         return $false
@@ -414,7 +423,7 @@ function Remove-SafeDirectoryTree {
 
     foreach ($item in $orderedItems) {
         try {
-            if (-not (Test-SafePath $item.FullName) -or
+            if (-not (Test-SafePath $item.FullName -WhitelistState $WhitelistState) -or
                 -not (Test-MolePathSnapshot $item.MolePathSnapshot)) {
                 $Report.Reason = "stopped at $($item.FullName): it changed or is protected"
                 return $false
@@ -431,7 +440,7 @@ function Remove-SafeDirectoryTree {
     }
 
     try {
-        if (-not (Test-SafePath $Path) -or -not (Test-MolePathSnapshot $tree.RootSnapshot)) {
+        if (-not (Test-SafePath $Path -WhitelistState $WhitelistState) -or -not (Test-MolePathSnapshot $tree.RootSnapshot)) {
             $Report.Reason = "kept the folder itself: it changed or is protected"
             return $false
         }
@@ -562,8 +571,9 @@ function Remove-SafeItem {
         [scriptblock]$Guard = $null
     )
     
-    # Validate path safety
-    if (-not (Test-SafePath -Path $Path)) {
+    # Validate path safety. One whitelist read serves this item's whole tree.
+    $whitelistState = Get-WhitelistState
+    if (-not (Test-SafePath -Path $Path -WhitelistState $whitelistState)) {
         Write-Debug "Skipping protected/whitelisted path: $Path"
         return $false
     }
@@ -579,7 +589,7 @@ function Remove-SafeItem {
     $isDirectory = Test-Path -LiteralPath $Path -PathType Container
     $validatedTree = $null
     if ($isDirectory) {
-        $validatedTree = Get-SafeDirectoryTreeItems -Path $Path
+        $validatedTree = Get-SafeDirectoryTreeItems -Path $Path -WhitelistState $whitelistState
         if (-not $validatedTree.Success) {
             if (-not $script:MoleDryRunMode) {
                 Write-MoleOperation -Action "SKIPPED" -Path $Path -Detail "refused: $($validatedTree['Reason'])"
@@ -593,7 +603,7 @@ function Remove-SafeItem {
     $sizeKB = [Math]::Ceiling($size / 1024)
     $sizeHuman = Format-ByteSize -Bytes $size
     
-    if (-not (Test-SafePath $Path) -or -not (Test-MolePathSnapshot $pathSnapshot)) { return $false }
+    if (-not (Test-SafePath $Path -WhitelistState $whitelistState) -or -not (Test-MolePathSnapshot $pathSnapshot)) { return $false }
 
     if ($null -ne $Guard) {
         try { $allowed = & $Guard $Path } catch { return $false }
@@ -604,7 +614,7 @@ function Remove-SafeItem {
     # Handle dry run
     if ($script:MoleDryRunMode) {
         if ($Recycle -and $isDirectory) {
-            $previewTree = Get-SafeDirectoryTreeItems -Path $Path
+            $previewTree = Get-SafeDirectoryTreeItems -Path $Path -WhitelistState $whitelistState
             if (-not $previewTree.Success -or -not (Test-MolePathSnapshot $pathSnapshot)) { return $false }
         }
         if (-not $Recycle) { $script:TotalSizeCleaned += $sizeKB }
@@ -624,7 +634,7 @@ function Remove-SafeItem {
         }
         elseif ($isDirectory) {
             $treeReport = @{}
-            if (-not (Remove-SafeDirectoryTree -Path $Path -ValidatedTree $validatedTree -Report $treeReport)) {
+            if (-not (Remove-SafeDirectoryTree -Path $Path -ValidatedTree $validatedTree -Report $treeReport -WhitelistState $whitelistState)) {
                 Write-MoleOperation -Action "FAILED" -Path $Path -Detail (Format-MoleTreeRemovalDetail $treeReport)
                 return $false
             }
@@ -670,9 +680,11 @@ function Remove-SafeItems {
     $removedCount = 0
     $failedCount = 0
     $dryRunPaths = New-Object System.Collections.Generic.List[string]
+    # One whitelist read for the batch, not several per path.
+    $whitelistState = Get-WhitelistState
     
     foreach ($path in $Paths) {
-        if (-not (Test-SafePath -Path $path)) {
+        if (-not (Test-SafePath -Path $path -WhitelistState $whitelistState)) {
             continue
         }
         
@@ -685,7 +697,7 @@ function Remove-SafeItems {
         $isDirectory = Test-Path -LiteralPath $path -PathType Container
         $validatedTree = $null
         if ($isDirectory) {
-            $validatedTree = Get-SafeDirectoryTreeItems -Path $path
+            $validatedTree = Get-SafeDirectoryTreeItems -Path $path -WhitelistState $whitelistState
             if (-not $validatedTree.Success) {
                 $failedCount++
                 if (-not $script:MoleDryRunMode) {
@@ -696,7 +708,7 @@ function Remove-SafeItems {
         }
         
         $size = if ($null -ne $validatedTree) { Get-ValidatedTreeSize -Tree $validatedTree } else { Get-PathSize -Path $path }
-        if (-not (Test-SafePath $path) -or -not (Test-MolePathSnapshot $pathSnapshot)) { continue }
+        if (-not (Test-SafePath $path -WhitelistState $whitelistState) -or -not (Test-MolePathSnapshot $pathSnapshot)) { continue }
 
         if ($script:MoleDryRunMode) {
             $totalSize += $size
@@ -708,7 +720,7 @@ function Remove-SafeItems {
         try {
             if ($isDirectory) {
                 $treeReport = @{}
-                if (-not (Remove-SafeDirectoryTree -Path $path -ValidatedTree $validatedTree -Report $treeReport)) {
+                if (-not (Remove-SafeDirectoryTree -Path $path -ValidatedTree $validatedTree -Report $treeReport -WhitelistState $whitelistState)) {
                     $failedCount++
                     Write-MoleOperation -Action "FAILED" -Path $path -Detail (Format-MoleTreeRemovalDetail $treeReport)
                     continue
