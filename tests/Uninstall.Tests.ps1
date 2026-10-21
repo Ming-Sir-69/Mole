@@ -955,7 +955,8 @@ Describe "mo uninstall --list" {
         $records = @($parsed)
         $records.Count | Should -Be 2
         $records[0].name | Should -BeExactly "Contoso Editor"
-        $records[0].id | Should -BeExactly "registry:$($script:ListRegistryApp.RegistryKey)"
+        # The provider prefix of PSPath stays out of the id.
+        $records[0].id | Should -BeExactly "registry:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ContosoEditor"
         $records[0].source | Should -BeExactly "Registry"
         $records[0].version | Should -BeExactly "2.1"
         $records[0].publisher | Should -BeExactly "Contoso"

@@ -503,7 +503,8 @@ function Get-AppSelectionKey {
     $package = [string](Get-MoleProperty $App 'PackageFullName')
     if ($package) { return "package:$package" }
     $key = [string](Get-MoleProperty $App 'RegistryKey')
-    if ($key) { return "registry:$key" }
+    # The scan stores the provider-qualified PSPath; the key reads without the provider.
+    if ($key) { return "registry:$($key -replace '^Microsoft\.PowerShell\.Core\\Registry::', '')" }
     return "name:$($App.Name)"
 }
 
