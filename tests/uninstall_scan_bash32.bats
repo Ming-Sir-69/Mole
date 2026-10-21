@@ -648,6 +648,40 @@ EOF
 	[[ "$output" == "/Applications/Shared.APP|Shared|com.example.shared|1|1" ]]
 }
 
+@test "bundle dedupe excludes hidden backups beside a visible same-ID app (#1791)" {
+    src="$HOME/uninstall_source.sh"
+    sourceable_uninstall_sh "$src"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" SRC_PATH="$src" \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$SRC_PATH"
+
+scan_raw_file="$HOME/scan.raw"
+cat > "$scan_raw_file" <<ROWS
+$HOME/Applications/.Aegis-backup-1.app|Aegis|com.example.aegis|1|1
+$HOME/Applications/.Aegis-backup-2.app|Aegis|com.example.aegis|1|1
+$HOME/Applications/Aegis.app|Aegis|com.example.aegis|1|1
+$HOME/Applications/AegisBeta.app|Aegis Beta|com.example.aegis|1|1
+$HOME/Applications/.OnlyHidden.app|OnlyHidden|com.example.hidden|1|1
+$HOME/Applications/.OtherHidden.app|OtherHidden|com.example.other|1|1
+$HOME/Backups/.Aegis-backup-3.app|Aegis|com.example.aegis|1|1
+ROWS
+
+_scan_dedupe_bundle_ids
+cat "$scan_raw_file"
+EOF
+
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"$HOME/Applications/Aegis.app|Aegis|com.example.aegis|"* ]] || return 1
+    [[ "$output" == *"$HOME/Applications/AegisBeta.app|Aegis Beta|com.example.aegis|"* ]] || return 1
+    [[ "$output" == *"$HOME/Applications/.OnlyHidden.app|OnlyHidden|com.example.hidden|"* ]] || return 1
+    [[ "$output" == *"$HOME/Applications/.OtherHidden.app|OtherHidden|com.example.other|"* ]] || return 1
+    [[ "$output" == *"$HOME/Backups/.Aegis-backup-3.app|Aegis|com.example.aegis|"* ]] || return 1
+    [[ "$output" != *"$HOME/Applications/.Aegis-backup-1.app|"* ]] || return 1
+    [[ "$output" != *"$HOME/Applications/.Aegis-backup-2.app|"* ]] || return 1
+}
+
 @test "scan_applications surfaces inline physical app size before deferred refresh (#1126)" {
 	src="$HOME/uninstall_source.sh"
 	sourceable_uninstall_sh "$src"

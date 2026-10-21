@@ -1153,8 +1153,18 @@ _scan_dedupe_bundle_ids() {
             n = split(path, parts, "/")
             return parts[n]
         }
+        function app_parent(path, basename) {
+            basename = app_basename(path)
+            return substr(path, 1, length(path) - length(basename))
+        }
         {
             bundle_id = $3
+            # A hidden .app backup is not an uninstall target when an app with
+            # the same bundle ID is installed visibly in that same directory.
+            # Keep standalone hidden apps and distinct visible channel names.
+            if (bundle_id != "" && bundle_id != "unknown" && substr(app_basename($1), 1, 1) != ".") {
+                visible_parents[bundle_id SUBSEP app_parent($1)] = 1
+            }
             if (bundle_id == "" || bundle_id == "unknown") {
                 key = "__path__" NR
                 rows[key] = $0
@@ -1179,6 +1189,13 @@ _scan_dedupe_bundle_ids() {
             for (i = 1; i <= count; i++) {
                 key = order[i]
                 if (key in rows) {
+                    split(rows[key], fields, "|")
+                    retained_path = fields[1]
+                    retained_id = fields[3]
+                    if (retained_id != "" && retained_id != "unknown" && substr(app_basename(retained_path), 1, 1) == "." &&
+                        (retained_id SUBSEP app_parent(retained_path)) in visible_parents) {
+                        continue
+                    }
                     print rows[key]
                 }
             }
