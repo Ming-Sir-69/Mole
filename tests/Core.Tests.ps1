@@ -910,7 +910,15 @@ function Invoke-WebRequest { param(`$Uri, `$Headers, `$OutFile, [switch]`$UseBas
 function Start-Process { param(`$FilePath, `$ArgumentList, [switch]`$NoNewWindow, [switch]`$Wait, [switch]`$PassThru, `$RedirectStandardOutput, `$RedirectStandardError) [IO.File]::WriteAllText(`$ArgumentList[2].Trim('"'), 'x'); [pscustomobject]@{ ExitCode = 0 } }
 $call
 "@
-        $stdout = @(& (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -Command $command 2>$null)
+        # Encoded, because Windows PowerShell passes a native argument's double
+        # quotes unescaped and the build mock's Trim('"') arrived broken. It also
+        # turns a native stderr line into an error record; the line is expected
+        # there, so it must not stop the test.
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $stdout = & {
+            $ErrorActionPreference = "Continue"
+            @(& (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>$null)
+        }
         $expected = if ($_ -eq "download") { "RESULT=ok" } else { "RESULT=True" }
         $stdout | Should -Be @($expected)
     }
