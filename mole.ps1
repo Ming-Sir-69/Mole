@@ -311,13 +311,15 @@ function Invoke-MoleCommand {
     if ($argCount -gt 0) {
         $declared = (Get-Command -Name $scriptPath -CommandType ExternalScript).Parameters
 
-        foreach ($arg in $Arguments) {
+        $argList = @($Arguments)
+        for ($index = 0; $index -lt $argList.Count; $index++) {
             # Shell parsing already removed syntactic quotes. Literal quote
             # characters belong to the argument and must be preserved.
-            $cleanArg = $arg
+            $cleanArg = $argList[$index]
 
             if ($cleanArg -match '^-{1,2}([\w-]+)$') {
-                # It's a switch parameter (e.g., -DryRun or --dry-run)
+                # A switch (--dry-run), or a flag that takes the next word as
+                # its value (--interval 1s), as the command declares it.
                 $paramName = Resolve-CommandParameterName -Parameters $declared -Flag $Matches[1]
                 if (-not $paramName) {
                     Write-MoleError "Unknown option for mo ${CommandName}: $cleanArg"
@@ -325,7 +327,15 @@ function Invoke-MoleCommand {
                     $script:MoleExitCode = 2
                     return
                 }
-                $splatParams[$paramName] = $true
+                $takesValue = $declared[$paramName].ParameterType -ne [System.Management.Automation.SwitchParameter]
+                $next = $index + 1
+                if ($takesValue -and $next -lt $argList.Count -and [string]$argList[$next] -notmatch '^-{1,2}[A-Za-z]') {
+                    $splatParams[$paramName] = $argList[$next]
+                    $index = $next
+                }
+                else {
+                    $splatParams[$paramName] = $true
+                }
             }
             elseif ($cleanArg -match '^-{1,2}([\w-]+)[=:](.+)$') {
                 # It's a named parameter with value (e.g., --name=value)

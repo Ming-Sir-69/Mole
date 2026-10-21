@@ -75,6 +75,22 @@ Describe "mole.ps1 command router" {
         Invoke-MoleCommand -CommandName "path" -Arguments @("--path=$literal") | Should -BeExactly $literal
     }
 
+    It "Gives a value flag the next word as <Case>" -ForEach @(
+        @{ Case = "two words"; Arguments = @("--watch", "--interval", "1s"); Expected = "watch=True interval=1s json=False" },
+        @{ Case = "one word"; Arguments = @("--watch", "--interval=1s"); Expected = "watch=True interval=1s json=False" },
+        @{ Case = "a value before a switch"; Arguments = @("--interval", "2s", "--json"); Expected = "watch=False interval=2s json=True" },
+        @{ Case = "switches alone"; Arguments = @("--watch", "--json"); Expected = "watch=True interval= json=True" }
+    ) {
+        # Shaped like bin\status.ps1: switches beside one [string] option.
+        Set-Content -LiteralPath (Join-Path $script:MOLE_BIN "watch.ps1") -Value @'
+[CmdletBinding()]
+param([switch]$Json, [switch]$Watch, [string]$Interval)
+"watch=$Watch interval=$Interval json=$Json"
+'@
+        Invoke-MoleCommand -CommandName "watch" -Arguments $Arguments | Should -BeExactly $Expected
+        $script:MoleExitCode | Should -Be 0
+    }
+
     It "Refuses an unknown command with a failure exit code" {
         Invoke-MoleCommand -CommandName "missing" -Arguments @()
         $script:MoleExitCode | Should -Be 2
@@ -302,6 +318,23 @@ Describe "Machine-readable output through installed launcher call shapes" {
         @($parsed)[0].id | Should -BeExactly "registry:HKLM-test\cached"
         @($parsed)[0].size_bytes | Should -Be 1048576
         Test-Path -LiteralPath (Join-Path $profile ".config\mole\operations.log") | Should -BeFalse
+    }
+
+    It "Passes --interval with its value to the status tool through <_>" -ForEach @("File", "Command") {
+        $root = Join-Path $TestDrive ("status-" + $_)
+        New-Item -ItemType Directory -Path (Join-Path $root "bin") -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "mole.ps1") -Destination $root
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "VERSION") -Destination $root
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "lib") -Destination $root -Recurse
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "bin\status.ps1") -Destination (Join-Path $root "bin")
+        $stub = Join-Path $root "bin\status-stub.cmd"
+        Set-Content -LiteralPath $stub -Value "@echo off`r`necho ARGS=%*" -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $root "lib\core\tui_binaries.ps1") -Value "function Ensure-TuiBinary { param(`$Name, `$WindowsDir, `$DestinationPath, `$SourcePath) '$stub' }" -Encoding ASCII
+
+        $result = Invoke-MoleShape -Shape $_ -Mole (Join-Path $root "mole.ps1") -Arguments @("status", "--watch", "--interval", "1s")
+
+        $result.ExitCode | Should -Be 0
+        $result.Text | Should -Match '(?m)^ARGS=--watch --interval=1s\s*$'
     }
 
     It "Passes --json and the path to the analyzer through <_>" -ForEach @("File", "Command") {
