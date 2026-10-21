@@ -45,6 +45,20 @@ iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 
 
 Mole은 이 GitHub 저장소, Scoop, 그리고 Windows 앱용 [mole.fit](https://mole.fit/ko/windows)에서만 배포됩니다. "Mole 기반"이라고 소개하는 다른 앱이나 인코딩된 명령을 터미널에 붙여 넣으라고 하는 사이트는 Mole과 관련이 없습니다.
 
+**AI 에이전트로 설치**
+
+에이전트에게 이렇게 말하면 됩니다:
+
+> Install Mole for me by reading https://raw.githubusercontent.com/tw93/Mole/main/llms.txt
+
+스킬을 직접 설치할 수도 있습니다. 설치하면 Claude Code, Codex, Cursor 등 에이전트가 무엇이든 삭제하기 전에 `--dry-run`으로 목록을 먼저 보여 주고, 앱 제거와 관리자 권한이 필요한 단계는 직접 실행하도록 남겨 둡니다. 업데이트는 `npx skills update -g -y`로 합니다.
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+호스트 플러그인으로 설치하려면 Claude Code에서 `/plugin marketplace add tw93/Mole` 다음 `/plugin install mole@mole`, Codex에서 `codex plugin marketplace add tw93/Mole` 다음 `codex plugin add mole@mole`을 실행합니다.
+
 **실행**
 
 ```powershell
@@ -242,16 +256,6 @@ mo purge --dry-run
 ```
 
 프로젝트 폴더에서 빌드 결과물(`node_modules`, `target`, `build`, `dist`, `venv` 등)을 찾아, 정리할 프로젝트를 직접 선택할 수 있게 합니다. 직접 선택하기 전에는 아무것도 선택되어 있지 않습니다. 검사할 폴더는 `mo purge --paths`로 구성하세요.
-
-## 에이전트 스킬
-
-Mole은 Claude Code, Codex, Cursor 등 코딩 에이전트용 스킬을 제공하며 macOS와 Windows CLI를 모두 지원합니다. 에이전트는 Mole의 JSON 출력을 읽고, 무엇이든 삭제하기 전에 `--dry-run`으로 목록을 먼저 보여 주며, 앱 제거와 관리자 권한이 필요한 단계는 직접 터미널에서 실행하도록 남겨 둡니다.
-
-```powershell
-npx skills add tw93/Mole -a claude-code codex cursor -g -y
-```
-
-설치 후에는 "디스크를 뭐가 차지하고 있어?"처럼 평소 말투로 물어보면 됩니다. 업데이트는 `npx skills update -g -y`로 합니다.
 
 ## 커뮤니티
 

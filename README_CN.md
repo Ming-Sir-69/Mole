@@ -45,6 +45,20 @@ iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 
 
 Mole 只通过这个 GitHub 仓库、Scoop 和 Windows 版官网 [mole.fit](https://mole.fit/zh/windows) 发布，自称基于 Mole 的其他 App，或者让你往终端里粘贴一段编码命令的网站，都和 Mole 无关。
 
+**用 AI Agent 安装**
+
+直接告诉你的 Agent：
+
+> Install Mole for me by reading https://raw.githubusercontent.com/tw93/Mole/main/llms.txt
+
+也可以自己装 skill，装上后 Claude Code、Codex、Cursor 等 Agent 删东西前会先用 `--dry-run` 把清单给你看，卸载 App 和要管理员权限的步骤留给你自己跑，更新用 `npx skills update -g -y`。
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+喜欢用宿主自带的插件管理，Claude Code 里先 `/plugin marketplace add tw93/Mole` 再 `/plugin install mole@mole`，Codex 里先 `codex plugin marketplace add tw93/Mole` 再 `codex plugin add mole@mole`。
+
 **常用命令**
 
 ```powershell
@@ -242,16 +256,6 @@ mo purge --dry-run
 ```
 
 在你的项目目录里找出构建产物（`node_modules`、`target`、`build`、`dist`、`venv` 等），由你挑选要清理的项目，选择之前什么都不会勾选，扫描的目录可以用 `mo purge --paths` 配置。
-
-## Agent Skill
-
-Mole 带了一个给 Claude Code、Codex、Cursor 等编程 Agent 用的 skill，macOS 和 Windows 两个 CLI 都能用。装上后 Agent 会读 Mole 的 JSON 输出，删东西前先用 `--dry-run` 把清单给你看，卸载 App 和要管理员权限的步骤留给你在自己的终端里跑。
-
-```powershell
-npx skills add tw93/Mole -a claude-code codex cursor -g -y
-```
-
-装好后直接问「什么占了我的磁盘」就行，更新用 `npx skills update -g -y`。
 
 ## 社区反馈
 

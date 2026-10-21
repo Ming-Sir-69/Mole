@@ -45,6 +45,20 @@ iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 
 
 Mole распространяется только через этот репозиторий на GitHub, Scoop и [mole.fit](https://mole.fit/windows) (приложение для Windows). Сайты, которые предлагают приложение «на основе Mole» или просят вставить в терминал закодированную команду, не имеют к Mole никакого отношения.
 
+**Через ИИ-агента**
+
+Скажите своему агенту:
+
+> Install Mole for me by reading https://raw.githubusercontent.com/tw93/Mole/main/llms.txt
+
+Или установите скилл сами. С ним Claude Code, Codex, Cursor и другие агенты перед любым удалением показывают список через `--dry-run`, а удаление приложений и шаги с правами администратора оставляют вам. Обновление: `npx skills update -g -y`.
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+Как плагин хоста: в Claude Code `/plugin marketplace add tw93/Mole`, затем `/plugin install mole@mole`, в Codex `codex plugin marketplace add tw93/Mole`, затем `codex plugin add mole@mole`.
+
 **Запуск**
 
 ```powershell
@@ -242,16 +256,6 @@ mo purge --dry-run
 ```
 
 Находит артефакты сборки (`node_modules`, `target`, `build`, `dist`, `venv` и другие) в папках ваших проектов и позволяет выбрать, какие проекты очистить; пока вы не сделаете выбор, ничего не отмечено. Настроить сканируемые папки можно командой `mo purge --paths`.
-
-## Скилл для агентов
-
-Mole поставляет скилл для Claude Code, Codex, Cursor и других агентов для программирования, он работает и с macOS-, и с Windows-версией CLI. С ним агент читает JSON-вывод Mole, перед любым удалением показывает список через `--dry-run`, а удаление приложений и шаги с правами администратора оставляет вам для запуска в вашем терминале.
-
-```powershell
-npx skills add tw93/Mole -a claude-code codex cursor -g -y
-```
-
-После этого просто спросите своими словами, например «что занимает мой диск?». Обновление: `npx skills update -g -y`.
 
 ## Сообщество
 

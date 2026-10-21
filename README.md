@@ -45,6 +45,20 @@ iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 
 
 Mole is only distributed through this GitHub repository, Scoop, and [mole.fit](https://mole.fit/windows) for the Windows app. Sites offering a "Mole-based" app or asking you to paste an encoded command into a terminal are not affiliated with Mole.
 
+**With an AI agent**
+
+Tell your agent:
+
+> Install Mole for me by reading https://raw.githubusercontent.com/tw93/Mole/main/llms.txt
+
+Or install the skill yourself. With it, Claude Code, Codex, Cursor and other agents show every cleanup with `--dry-run` before anything is removed, and leave app uninstalls and administrator steps to you. Update with `npx skills update -g -y`.
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+As a host plugin: `/plugin marketplace add tw93/Mole` then `/plugin install mole@mole` in Claude Code, or `codex plugin marketplace add tw93/Mole` then `codex plugin add mole@mole` in Codex.
+
 **Run**
 
 ```powershell
@@ -242,16 +256,6 @@ mo purge --dry-run
 ```
 
 Finds build artifacts (`node_modules`, `target`, `build`, `dist`, `venv`, and more) in your project folders and lets you pick which projects to clean; nothing is selected until you choose. Configure the scanned folders with `mo purge --paths`.
-
-## Agent Skill
-
-Mole ships a skill for Claude Code, Codex, Cursor and other coding agents, covering both the macOS and the Windows CLI. With it, an agent reads Mole's JSON output, shows you every cleanup with `--dry-run` before anything is removed, and leaves app uninstalls and administrator steps for you to run in your own terminal.
-
-```powershell
-npx skills add tw93/Mole -a claude-code codex cursor -g -y
-```
-
-Then ask in plain words, such as "what is using my disk?". Update with `npx skills update -g -y`.
 
 ## Community
 

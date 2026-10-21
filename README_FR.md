@@ -45,6 +45,20 @@ iwr -useb https://raw.githubusercontent.com/tw93/Mole/windows/quick-install.ps1 
 
 Mole est distribué uniquement via ce dépôt GitHub, Scoop et [mole.fit](https://mole.fit/fr/windows) pour l'app Windows. Les sites qui proposent une app « basée sur Mole » ou vous demandent de coller une commande encodée dans un terminal n'ont aucun lien avec Mole.
 
+**Avec un agent IA**
+
+Dites à votre agent :
+
+> Install Mole for me by reading https://raw.githubusercontent.com/tw93/Mole/main/llms.txt
+
+Ou installez le skill vous-même. Avec lui, Claude Code, Codex, Cursor et les autres agents vous montrent chaque nettoyage avec `--dry-run` avant de supprimer quoi que ce soit, et vous laissent les désinstallations d'apps et les étapes administrateur. Mise à jour avec `npx skills update -g -y`.
+
+```powershell
+npx skills add tw93/Mole -a claude-code codex cursor -g -y
+```
+
+En plugin de l'hôte : dans Claude Code `/plugin marketplace add tw93/Mole` puis `/plugin install mole@mole`, dans Codex `codex plugin marketplace add tw93/Mole` puis `codex plugin add mole@mole`.
+
 **Commandes principales**
 
 ```powershell
@@ -242,16 +256,6 @@ mo purge --dry-run
 ```
 
 Repère les artefacts de build (`node_modules`, `target`, `build`, `dist`, `venv`, et plus) dans vos dossiers de projets et vous laisse choisir les projets à nettoyer ; rien n'est sélectionné tant que vous n'avez pas choisi. Configurez les dossiers analysés avec `mo purge --paths`.
-
-## Skill pour agents
-
-Mole fournit un skill pour Claude Code, Codex, Cursor et les autres agents de code, valable pour la CLI macOS comme pour la CLI Windows. Avec lui, un agent lit la sortie JSON de Mole, vous montre chaque nettoyage avec `--dry-run` avant de supprimer quoi que ce soit, et vous laisse lancer vous-même les désinstallations d'apps et les étapes administrateur dans votre terminal.
-
-```powershell
-npx skills add tw93/Mole -a claude-code codex cursor -g -y
-```
-
-Ensuite, posez simplement la question, par exemple « qu'est-ce qui occupe mon disque ? ». Mise à jour avec `npx skills update -g -y`.
 
 ## Communauté
 
