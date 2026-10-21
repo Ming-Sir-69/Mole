@@ -237,12 +237,15 @@ Describe "Debug through installed launcher call shapes" {
         try {
             $env:USERPROFILE = $profile
             $env:MOLE_DEBUG = $null
+            # Debug lines go to stderr when stdout is redirected, and Windows
+            # PowerShell turns each into an error record that a Stop
+            # preference would throw on; they are what this test reads.
             if ($_ -eq "File") {
-                $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mole clean --help --debug 2>&1 | Out-String
+                $output = & { $ErrorActionPreference = "Continue"; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mole clean --help --debug 2>&1 | Out-String }
             }
             else {
                 $command = "& '" + $mole.Replace("'", "''") + "' 'clean' '--help' '--debug'; exit `$LASTEXITCODE"
-                $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command 2>&1 | Out-String
+                $output = & { $ErrorActionPreference = "Continue"; & powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $command 2>&1 | Out-String }
             }
             $LASTEXITCODE | Should -Be 0
             $output | Should -Match 'Debug logging enabled'
@@ -266,7 +269,7 @@ Describe "Analyze debug routing" {
         try {
             $env:USERPROFILE = $profile
             $mole = Join-Path $script:WindowsDir 'mole.ps1'
-            $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mole analyze --help --debug 2>&1 | Out-String
+            $output = & { $ErrorActionPreference = "Continue"; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $mole analyze --help --debug 2>&1 | Out-String }
             $LASTEXITCODE | Should -Be 0
             $output | Should -Match 'Interactive disk space analyzer'
             $log = Join-Path $profile '.config\mole\mole_debug_session.log'
