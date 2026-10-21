@@ -279,3 +279,48 @@ func TestParseArgsHelpAndUnknownFlag(t *testing.T) {
 		t.Fatalf("unknown flag: code=%d keepGoing=%v stdout=%q stderr=%q", code, keepGoing, stdout.String(), stderr.String())
 	}
 }
+
+// Windows PowerShell 5.1 decodes a native command's stdout with the console
+// code page, so raw UTF-8 garbles a Chinese folder name before ConvertFrom-Json
+// sees it. Every byte must be ASCII, and the names must still decode exactly.
+func TestRunJSONModeEscapesNonASCIIAsUnicodeEscapes(t *testing.T) {
+	root := t.TempDir()
+	names := []string{"测试目录", "Ünïcode", "😀.txt"}
+	for _, name := range names {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var out bytes.Buffer
+	if err := runJSONMode(&out, root, false); err != nil {
+		t.Fatalf("runJSONMode: %v", err)
+	}
+	for i, b := range out.Bytes() {
+		if b > 0x7f {
+			t.Fatalf("byte %d is not ASCII (0x%02x) in %s", i, b, out.String())
+		}
+	}
+	for _, escape := range []string{`\u6d4b\u8bd5\u76ee\u5f55`, `\u00dcn\u00efcode`, `\ud83d\ude00.txt`} {
+		if !strings.Contains(out.String(), escape) {
+			t.Fatalf("expected %s in %s", escape, out.String())
+		}
+	}
+	var decoded struct {
+		Entries []struct {
+			Name string `json:"name"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %v", err)
+	}
+	got := map[string]bool{}
+	for _, entry := range decoded.Entries {
+		got[entry.Name] = true
+	}
+	for _, name := range names {
+		if !got[name] {
+			t.Fatalf("%q did not round-trip, got %#v", name, got)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf16"
 )
 
 // The JSON output follows the macOS CLI's `mo analyze --json` contract field
@@ -62,12 +64,36 @@ func runJSONMode(w io.Writer, path string, isOverview bool) error {
 		}
 	}
 
-	encoder := json.NewEncoder(w)
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(result); err != nil {
 		return fmt.Errorf("failed to encode JSON: %w", err)
 	}
+	if _, err := w.Write(escapeNonASCII(encoded.Bytes())); err != nil {
+		return fmt.Errorf("failed to write JSON: %w", err)
+	}
 	return nil
+}
+
+// escapeNonASCII writes every non-ASCII character of encoded JSON as a \u
+// escape, astral ones as a surrogate pair, the way `mo uninstall --list` does.
+// Windows PowerShell 5.1 decodes a native command's stdout with the console
+// code page, so raw UTF-8 would garble a non-ASCII path before ConvertFrom-Json
+// reads it. JSON syntax is ASCII, so only string contents change.
+func escapeNonASCII(encoded []byte) []byte {
+	var out bytes.Buffer
+	out.Grow(len(encoded))
+	for _, r := range string(encoded) {
+		if r < 0x80 {
+			out.WriteByte(byte(r))
+			continue
+		}
+		for _, unit := range utf16.Encode([]rune{r}) {
+			fmt.Fprintf(&out, `\u%04x`, unit)
+		}
+	}
+	return out.Bytes()
 }
 
 func performDirectoryScanForJSON(path string) (jsonOutput, error) {
