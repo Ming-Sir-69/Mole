@@ -324,3 +324,49 @@ func TestRunJSONModeEscapesNonASCIIAsUnicodeEscapes(t *testing.T) {
 		}
 	}
 }
+
+// Every overview row on Windows lies on a drive the overview also lists, so
+// adding the folders to the drives' used bytes counted the same files twice.
+func TestOverviewJSONTotalCountsNestedRowsOnce(t *testing.T) {
+	home := filepath.Join(string(filepath.Separator), "fixture", "Users", "me")
+	t.Setenv("USERPROFILE", home)
+	drive := filepath.Join(string(filepath.Separator), "fixture")
+	appData := filepath.Join(home, "AppData")
+	rows := []dirEntry{
+		{Name: "Home", Path: home, IsDir: true, Size: -1},
+		{Name: "User AppData", Path: appData, IsDir: true, Size: -1},
+		{Name: "npm Cache", Path: filepath.Join(appData, "Local", "npm-cache"), IsDir: true, Size: -1},
+		{Name: "Old Downloads (90d+)", Path: filepath.Join(home, "Downloads"), IsDir: true, Size: -1},
+		{Name: "Local Disk", Path: drive, IsDir: true, Size: -1},
+	}
+	sizes := map[string]int64{home: 300, appData: 200, rows[2].Path: 50, rows[3].Path: 40, drive: 1000}
+	measure := func(_ context.Context, path string) (int64, error) { return sizes[path], nil }
+
+	result := performOverviewScanForJSONWithEntries(nil, rows, measure)
+	if result.TotalSize != 1000 {
+		t.Fatalf("the drive already holds every folder row, want 1000, got %d", result.TotalSize)
+	}
+	if len(result.Entries) != len(rows) {
+		t.Fatalf("every row is still listed, want %d, got %d", len(rows), len(result.Entries))
+	}
+
+	// Without a drive row, Home (measured without AppData) and AppData are
+	// disjoint, and the caches inside them are already counted.
+	result = performOverviewScanForJSONWithEntries(nil, rows[:4], measure)
+	if result.TotalSize != 500 {
+		t.Fatalf("Home plus AppData, want 500, got %d", result.TotalSize)
+	}
+
+	// A drive whose measurement failed holds nothing in the total, so the
+	// rows on it still count.
+	failing := func(ctx context.Context, path string) (int64, error) {
+		if path == drive {
+			return 0, os.ErrPermission
+		}
+		return measure(ctx, path)
+	}
+	result = performOverviewScanForJSONWithEntries(nil, rows, failing)
+	if result.TotalSize != 500 {
+		t.Fatalf("rows on an unmeasured drive still count, want 500, got %d", result.TotalSize)
+	}
+}

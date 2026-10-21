@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -130,18 +132,17 @@ func performOverviewScanForJSONWithEntries(insightEntries, overviewEntries []dir
 		insightPaths[insight.Path] = true
 	}
 
-	var totalSize int64
 	entries := make([]dirEntry, 0, len(overviewEntries))
 	for _, entry := range measureOverviewEntriesForJSON(overviewEntries, measure) {
 		// Match the TUI: omit rows that were measured completely and are empty.
 		if entry.Size == 0 && entry.State == scanComplete {
 			continue
 		}
-		totalSize += max(entry.Size, 0)
 		entries = append(entries, entry)
 	}
 
 	sortDirEntriesBySize(entries)
+	totalSize := overviewTotalSize(entries)
 
 	return jsonOutput{
 		ScanStatus: entryScanState(entries),
@@ -150,6 +151,56 @@ func performOverviewScanForJSONWithEntries(insightEntries, overviewEntries []dir
 		Entries:    jsonEntriesFromDirEntries(entries, true, insightPaths),
 		TotalSize:  totalSize,
 	}
+}
+
+// overviewTotalSize adds each row once: a row that lies inside another row with
+// measured bytes is already part of that row. Every folder row sits on a drive
+// the overview also lists, so on Windows the total is the drives' used bytes.
+// Home is measured without AppData, so AppData is not inside it.
+func overviewTotalSize(entries []dirEntry) int64 {
+	var total int64
+	for _, entry := range entries {
+		covered := false
+		for _, other := range entries {
+			if other.Path != entry.Path && other.Size > 0 && overviewRowCovers(other.Path, entry.Path) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			total += max(entry.Size, 0)
+		}
+	}
+	return total
+}
+
+// overviewRowCovers reports whether the measurement of parent includes child.
+func overviewRowCovers(parent, child string) bool {
+	if !pathWithin(parent, child) {
+		return false
+	}
+	if home := userProfileDir(); home != "" && pathEqual(parent, home) {
+		return !pathWithin(filepath.Join(home, "AppData"), child)
+	}
+	return true
+}
+
+// pathWithin reports whether child is parent or below it, ignoring case as
+// Windows paths do.
+func pathWithin(parent, child string) bool {
+	parent = strings.ToLower(filepath.Clean(parent))
+	child = strings.ToLower(filepath.Clean(child))
+	if parent == child {
+		return true
+	}
+	if !strings.HasSuffix(parent, string(filepath.Separator)) {
+		parent += string(filepath.Separator)
+	}
+	return strings.HasPrefix(child, parent)
+}
+
+func pathEqual(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
 // measureOverviewEntriesForJSON measures every row with the TUI's own
