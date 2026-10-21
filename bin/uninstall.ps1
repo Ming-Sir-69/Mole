@@ -40,7 +40,8 @@ $script:CacheDir = "$env:USERPROFILE\.cache\mole"
 # v3: Store display sizing does not require deletion authority over ancestors.
 # v4: written as UTF-8. v3 used the ANSI code page, which turned non-ASCII
 # app names into question marks, so a v3 file is not read as UTF-8.
-$script:AppCacheFile = "$script:CacheDir\app_scan_cache_v4.json"
+# v5: sparse Store packages a desktop app registers are no longer listed.
+$script:AppCacheFile = "$script:CacheDir\app_scan_cache_v5.json"
 $script:CacheTTLHours = 24
 
 # A vendor EstimatedSize above this is measured against the install folder (#1717).
@@ -473,6 +474,19 @@ function Test-ListableAppxPackage {
     return $true
 }
 
+# A package with external location (a sparse package) is shell integration a desktop
+# app registers, such as WinMerge's Windows 11 context menu; that app's own uninstaller
+# removes it, so it is not a separate app. An unreadable manifest keeps the package.
+function Test-SparseAppxManifest {
+    param($Manifest)
+
+    if ($Manifest -isnot [System.Xml.XmlNode]) { return $false }
+    $node = $Manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Properties']/*[local-name()='AllowExternalContent']")
+    if ($null -eq $node) { return $false }
+    $value = $node.InnerText.Trim()
+    return ($value -eq 'true' -or $value -eq '1')
+}
+
 # The size the menu shows: a 0B that was never measured is Unknown, not empty.
 function Get-AppDisplaySize {
     param($App)
@@ -781,6 +795,7 @@ function Get-InstalledApplications {
         foreach ($uwp in $uwpApps) {
             # Get friendly name
             $name = $uwp.Name
+            $manifest = $null
             try {
                 $manifest = Get-AppxPackageManifest -Package $uwp.PackageFullName -ErrorAction SilentlyContinue
                 if ($manifest.Package.Properties.DisplayName -and
@@ -789,6 +804,10 @@ function Get-InstalledApplications {
                 }
             }
             catch { }
+            if (Test-SparseAppxManifest -Manifest $manifest) {
+                Write-Debug "Skipping package with external location: $($uwp.PackageFullName)"
+                continue
+            }
 
             # Calculate size
             $measuredKB = Get-AppxInstallSizeKB -Path $uwp.InstallLocation

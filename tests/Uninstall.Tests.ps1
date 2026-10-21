@@ -650,6 +650,28 @@ Describe "Scanning installed apps" {
 
         @($apps | ForEach-Object { $_.Name }) | Should -Be @("Contoso.Notes")
     }
+
+    It "Leaves out a sparse package a desktop app registers, like WinMerge's context menu" {
+        Mock Get-AppxPackage {
+            foreach ($name in @("WinMerge", "Contoso.Notes", "Contoso.Unread")) {
+                [PSCustomObject]@{
+                    Name = $name; PackageFullName = "${name}_1.0.8.0_neutral__f62ztx9ss5ed4"; Publisher = "CN=Test"; Version = "1.0.8.0"
+                    IsFramework = $false; IsResourcePackage = $false; IsBundle = $false; SignatureKind = "Developer"; InstallLocation = $null
+                }
+            }
+        }
+        Mock Get-AppxPackageManifest {
+            if ($Package -like "Contoso.Unread_*") { throw "manifest unavailable" }
+            $external = if ($Package -like "WinMerge_*") { "<uap10:AllowExternalContent>true</uap10:AllowExternalContent>" } else { "" }
+            [xml]("<Package xmlns='http://schemas.microsoft.com/appx/manifest/foundation/windows10' " +
+                "xmlns:uap10='http://schemas.microsoft.com/appx/manifest/uap/windows10/10'><Properties>" +
+                "<DisplayName>$($Package.Split('_')[0])</DisplayName>$external</Properties></Package>")
+        }
+
+        $apps = @(Get-InstalledApplications -ForceRescan)
+
+        @($apps | ForEach-Object { $_.Name } | Sort-Object) | Should -Be @("Contoso.Notes", "Contoso.Unread")
+    }
 }
 
 Describe "Selecting apps that share a name" {
