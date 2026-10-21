@@ -446,7 +446,7 @@ Describe 'Owner cache cleanup whitelist' {
         $lock = Join-Path $env:USERPROFILE '.gradle\caches\build-cache-1\build-cache-1.lock'
         New-Item -ItemType Directory -Path (Split-Path -Parent $lock) -Force | Out-Null
         Set-Content -LiteralPath $lock -Value 'lock'
-        Clear-JvmCaches
+        Invoke-DevToolsCleanup
         Test-Path -LiteralPath $lock | Should -BeTrue
     }
     It 'Keeps Docker builders whose mutation cannot be mapped to whitelist paths' {

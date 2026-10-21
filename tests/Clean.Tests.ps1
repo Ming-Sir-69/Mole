@@ -144,19 +144,25 @@ Describe "Bounded developer cache scans" {
     AfterEach {
         $env:USERPROFILE = $script:SavedDevProfile
     }
-    It "Keeps the Maven and Stack candidate set while bounding each scan" {
-        Clear-JvmCaches
+    It "Keeps the Stack candidate set while bounding the scan" {
         Clear-HaskellCaches
-        $script:CollectedPaths | Should -Contain (Join-Path $script:DevHome ".m2\repository\group\artifact.jar.lastUpdated")
         $script:CollectedPaths | Should -Contain (Join-Path $script:DevHome ".stack\snapshots\pkg\download.tmp")
-        $script:CollectedPaths | Should -Not -Contain (Join-Path $script:DevHome ".m2\repository\group\artifact.jar")
         $script:CollectedPaths | Should -Not -Contain (Join-Path $script:DevHome ".stack\snapshots\pkg\download.tar.gz")
     }
     It "Removes nothing when a bounded scan is incomplete" {
         Mock Get-FilesWithinBudget { @{ Files = @(); Complete = $false } }
-        Clear-JvmCaches
         Clear-HaskellCaches
         $script:CollectedPaths.Count | Should -Be 0
+    }
+    It "Does not walk the Maven repository the default whitelist protects" {
+        # The default whitelist covers everything under ~\.m2\repository, so a
+        # .lastUpdated scan there could only spend its 15-second budget.
+        $real = Join-Path $script:SavedDevProfile ".m2\repository\group\artifact.jar.lastUpdated"
+        Test-SafePath -Path $real | Should -BeFalse
+        Mock Get-FilesWithinBudget { @{ Files = @(); Complete = $true } }
+        Invoke-DevToolsCleanup
+        Should -Invoke Get-FilesWithinBudget -Times 0 -ParameterFilter { $Root -like "*\.m2\*" }
+        Test-Path -LiteralPath (Join-Path $script:DevHome ".m2\repository\group\artifact.jar.lastUpdated") | Should -BeTrue
     }
     It "Reports a small tree as completely enumerated" {
         $scan = Get-FilesWithinBudget -Root (Join-Path $script:DevHome ".m2\repository") -Filter "*.lastUpdated" -TimeoutSeconds 15

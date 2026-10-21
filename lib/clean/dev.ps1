@@ -421,28 +421,6 @@ function Get-FilesWithinBudget {
     return $result
 }
 
-function Clear-JvmCaches {
-    <#
-    .SYNOPSIS
-        Clean JVM ecosystem caches (Gradle, Maven, etc.)
-    #>
-    
-    # Gradle lock files coordinate active builds and downloads. Neither their
-    # age nor an idle process proves that removing one is safe.
-
-    # Maven repository (only clean temp files)
-    $mavenRepoPath = "$env:USERPROFILE\.m2\repository"
-    if (Test-Path $mavenRepoPath) {
-        $scan = Get-FilesWithinBudget -Root $mavenRepoPath -Filter "*.lastUpdated" -TimeoutSeconds 15
-        if (-not $scan.Complete) {
-            Write-Debug "Maven update-marker scan did not complete within 15s; kept every marker"
-        }
-        elseif ($scan.Files.Count -gt 0) {
-            Remove-SafeItems -Paths $scan.Files -Description "Maven update markers"
-        }
-    }
-}
-
 # ============================================================================
 # Docker / Containers
 # ============================================================================
@@ -722,9 +700,12 @@ function Invoke-DevToolsCleanup {
     # Rust ecosystem
     Clear-RustCaches
     
-    # JVM ecosystem
-    Clear-JvmCaches
-    
+    # JVM ecosystem: nothing is removed. Gradle lock files coordinate active
+    # builds and downloads, and neither their age nor an idle process proves
+    # removing one is safe. ~\.m2\repository is a default whitelist entry, so
+    # the .lastUpdated markers inside it were never removable, and they free no
+    # space; the macOS CLI leaves the Maven repository alone too.
+
     # Elixir/Erlang ecosystem
     Clear-ElixirCaches
     
