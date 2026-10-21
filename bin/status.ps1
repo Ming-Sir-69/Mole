@@ -54,8 +54,8 @@ if ($ShowHelp) {
 
 $binPath = Ensure-TuiBinary -Name "status" -WindowsDir $windowsDir -DestinationPath $defaultBinPath -SourcePath "./cmd/status/"
 if (-not $binPath) {
-    Write-Host "Could not download the verified status tool for this version from GitHub Releases." -ForegroundColor Red
-    Write-Host "Check the network and run 'mo status' again. With Go installed, Mole builds it locally instead." -ForegroundColor Yellow
+    Write-TuiBinaryStatus "Could not download the verified status tool for this version from GitHub Releases." -Color Red
+    Write-TuiBinaryStatus "Check the network and run 'mo status' again. With Go installed, Mole builds it locally instead." -Color Yellow
     exit 1
 }
 

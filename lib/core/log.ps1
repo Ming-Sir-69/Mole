@@ -189,6 +189,20 @@ function Write-MoleError {
 }
 
 
+# A diagnostic line, not a result. Both launchers start a child PowerShell
+# whose host lines land in its stdout, so with stdout redirected
+# (`mo uninstall --list --debug | ConvertFrom-Json`, `$out = mo ...`) they
+# would corrupt the data a caller reads. Send them to stderr then; a console
+# keeps the usual host output.
+function Write-MoleDiagnosticLine {
+    param([string]$Message = "")
+
+    $redirected = $false
+    try { $redirected = [Console]::IsOutputRedirected } catch { }
+    if ($redirected) { [Console]::Error.WriteLine($Message) }
+    else { Write-Host $Message }
+}
+
 function Write-Debug {
     <#
     .SYNOPSIS
@@ -200,7 +214,7 @@ function Write-Debug {
         $gray = Get-MoleColor -Name "Gray"
         $nc = Get-MoleColor -Name "NC"
         Stop-Spinner
-        Write-Host "  ${gray}[DEBUG] $Message${nc}"
+        Write-MoleDiagnosticLine "  ${gray}[DEBUG] $Message${nc}"
         if ($script:CurrentSection.Active) { Start-Spinner }
         Add-MoleLogLine "$(Get-Date -Format 'HH:mm:ss') [DEBUG] $Message"
     }
@@ -444,7 +458,7 @@ function Start-MoleDebugSession {
         $rule = "-" * 70
         $text = (@($rule) + @($Header) + @($rule)) -join "`r`n"
         [System.IO.File]::WriteAllText($path, "$text`r`n", (New-Object System.Text.UTF8Encoding $false))
-        Write-Host "${gray}[DEBUG] Debug logging enabled. Session log: $path${nc}"
+        Write-MoleDiagnosticLine "${gray}[DEBUG] Debug logging enabled. Session log: $path${nc}"
     }
     catch {
         $script:LogConfig.LogFile = $null
@@ -460,9 +474,9 @@ function Complete-MoleDebugSession {
     if (-not $script:LogConfig.LogFile) { return }
     $gray = Get-MoleColor -Name "Gray"
     $nc = Get-MoleColor -Name "NC"
-    Write-Host ""
-    Write-Host "${gray}Debug session log saved to:${nc} $($script:LogConfig.LogFile)"
-    Write-Host ""
+    Write-MoleDiagnosticLine ""
+    Write-MoleDiagnosticLine "${gray}Debug session log saved to:${nc} $($script:LogConfig.LogFile)"
+    Write-MoleDiagnosticLine ""
 }
 
 # ============================================================================

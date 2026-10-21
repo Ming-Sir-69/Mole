@@ -883,11 +883,36 @@ Describe "Prebuilt TUI download verification" {
     }
 
     It "Names the cause when the verified release cannot be fetched (#1744)" {
-        Mock Write-Host { }
+        Mock Write-TuiBinaryStatus { }
         Mock Invoke-WebRequest -ParameterFilter { $OutFile } { throw "connection reset" }
         Restore-PrebuiltTuiBinary -Name "status" -WindowsDir $TestDrive -DestinationPath $script:Dest -Version "9.9.9" | Should -Be "unavailable"
-        Should -Invoke Write-Host -Times 1 -Exactly -ParameterFilter { "$Object" -like "*prebuilt status tool: connection reset*" }
+        Should -Invoke Write-TuiBinaryStatus -Times 1 -Exactly -ParameterFilter { "$Message" -like "*prebuilt status tool: connection reset*" }
         Test-Path "$($script:Dest).download" | Should -BeFalse
+    }
+
+    It "Keeps <_> progress out of a redirected stdout" -ForEach @("download", "build") {
+        # Both launchers start a child PowerShell whose host lines land in its
+        # stdout, so `$out = mo analyze --json` used to begin with this line.
+        $tui = (Join-Path $script:LibDir "core\tui_binaries.ps1").Replace("'", "''")
+        $dest = (Join-Path $TestDrive ("redirect-" + [guid]::NewGuid().ToString("N") + "\analyze.exe")).Replace("'", "''")
+        $probe = Join-Path $TestDrive ("payload-" + [guid]::NewGuid().ToString("N"))
+        [System.IO.File]::WriteAllText($probe, "x")
+        $hash = Get-MoleFileSha256 -Path $probe
+        $call = if ($_ -eq "download") {
+            "'RESULT=' + (Restore-PrebuiltTuiBinary -Name analyze -WindowsDir '$($TestDrive.Replace("'", "''"))' -DestinationPath '$dest' -Version 9.9.9)"
+        }
+        else {
+            "'RESULT=' + (Build-TuiBinary -Name analyze -WindowsDir '$($TestDrive.Replace("'", "''"))' -DestinationPath '$dest' -SourcePath './cmd/analyze/')"
+        }
+        $command = @"
+. '$tui'
+function Invoke-WebRequest { param(`$Uri, `$Headers, `$OutFile, [switch]`$UseBasicParsing) if (`$OutFile) { [IO.File]::WriteAllText(`$OutFile, 'x') } else { [pscustomobject]@{ Content = '$hash  analyze-windows-x64.exe' } } }
+function Start-Process { param(`$FilePath, `$ArgumentList, [switch]`$NoNewWindow, [switch]`$Wait, [switch]`$PassThru, `$RedirectStandardOutput, `$RedirectStandardError) [IO.File]::WriteAllText(`$ArgumentList[2].Trim('"'), 'x'); [pscustomobject]@{ ExitCode = 0 } }
+$call
+"@
+        $stdout = @(& (Get-Process -Id $PID).Path -NoProfile -ExecutionPolicy Bypass -Command $command 2>$null)
+        $expected = if ($_ -eq "download") { "RESULT=ok" } else { "RESULT=True" }
+        $stdout | Should -Be @($expected)
     }
 
     It "Never downloads an executable the checksum file does not list" {

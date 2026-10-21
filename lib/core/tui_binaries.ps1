@@ -21,6 +21,18 @@ $script:MoleGitHubHeaders = @{
     "User-Agent" = "Mole-Windows"
 }
 
+# Progress and failure lines while preparing a tool. With stdout redirected
+# (`$out = mo analyze --json`) the launcher's child PowerShell would put host
+# lines ahead of the JSON, so they go to stderr then.
+function Write-TuiBinaryStatus {
+    param([string]$Message, [string]$Color = "Gray")
+
+    $redirected = $false
+    try { $redirected = [Console]::IsOutputRedirected } catch { }
+    if ($redirected) { [Console]::Error.WriteLine($Message) }
+    else { Write-Host $Message -ForegroundColor $Color }
+}
+
 function Get-MoleVersionFromScriptFile {
     param([string]$WindowsDir)
 
@@ -135,7 +147,7 @@ function Restore-PrebuiltTuiBinary {
         New-Item -ItemType Directory -Path $binDir -Force | Out-Null
     }
 
-    Write-Host "Downloading prebuilt $Name tool..." -ForegroundColor Cyan
+    Write-TuiBinaryStatus "Downloading prebuilt $Name tool..." -Color Cyan
 
     $downloadPath = "$DestinationPath.download"
     try {
@@ -151,7 +163,7 @@ function Restore-PrebuiltTuiBinary {
     catch {
         # The release and its checksum answered, so this is a real failure;
         # say what it was instead of only suggesting Go (#1744).
-        Write-Host "  Could not fetch the prebuilt $Name tool: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-TuiBinaryStatus "  Could not fetch the prebuilt $Name tool: $($_.Exception.Message)" -Color Yellow
         if (Test-Path $downloadPath) {
             Remove-Item $downloadPath -Force -ErrorAction SilentlyContinue
         }
@@ -172,7 +184,7 @@ function Build-TuiBinary {
         New-Item -ItemType Directory -Path $binDir -Force | Out-Null
     }
 
-    Write-Host "Building $Name tool..." -ForegroundColor Cyan
+    Write-TuiBinaryStatus "Building $Name tool..." -Color Cyan
 
     $stdoutPath = [System.IO.Path]::GetTempFileName()
     $stderrPath = [System.IO.Path]::GetTempFileName()
@@ -191,14 +203,14 @@ function Build-TuiBinary {
         }
         if ($process.ExitCode -ne 0) {
             $details = @([string](Get-Content -LiteralPath $stdoutPath -Raw), [string](Get-Content -LiteralPath $stderrPath -Raw)) -join [Environment]::NewLine
-            Write-Host "Failed to build $Name tool (exit $($process.ExitCode)): $($details.Trim())" -ForegroundColor Red
+            Write-TuiBinaryStatus "Failed to build $Name tool (exit $($process.ExitCode)): $($details.Trim())" -Color Red
             return $false
         }
         Move-Item -LiteralPath $buildPath -Destination $DestinationPath -Force -ErrorAction Stop
         return $true
     }
     catch {
-        Write-Host "Failed to build $Name tool: $_" -ForegroundColor Red
+        Write-TuiBinaryStatus "Failed to build $Name tool: $_" -Color Red
         return $false
     }
     finally {
@@ -268,7 +280,7 @@ function Ensure-TuiBinary {
         }
     }
     catch {
-        Write-Host "Failed to restore prebuilt $Name tool: $_" -ForegroundColor Yellow
+        Write-TuiBinaryStatus "Failed to restore prebuilt $Name tool: $_" -Color Yellow
     }
     if ($restoreResult -eq "ok") {
         return $DestinationPath
@@ -276,7 +288,7 @@ function Ensure-TuiBinary {
     # A checksum mismatch means the published file is not the one released;
     # stop here instead of quietly building something else.
     if ($restoreResult -eq "mismatch") {
-        Write-Host "The downloaded $Name tool did not match its published checksum and was deleted. Run 'mo update' and try again, or report it at https://github.com/tw93/Mole/issues." -ForegroundColor Red
+        Write-TuiBinaryStatus "The downloaded $Name tool did not match its published checksum and was deleted. Run 'mo update' and try again, or report it at https://github.com/tw93/Mole/issues." -Color Red
         return $null
     }
 
@@ -287,7 +299,7 @@ function Ensure-TuiBinary {
             }
         }
         catch {
-            Write-Host "Failed to prepare $Name tool: $_" -ForegroundColor Yellow
+            Write-TuiBinaryStatus "Failed to prepare $Name tool: $_" -Color Yellow
         }
     }
 

@@ -294,8 +294,13 @@ Describe "Machine-readable output through installed launcher call shapes" {
         }
     }
 
-    It "Prints the cached uninstall inventory as JSON through <_>" -ForEach @("File", "Command") {
-        $profile = Join-Path $TestDrive ("list-" + $_)
+    It "Prints the cached uninstall inventory as JSON through <Shape><Label>" -ForEach @(
+        @{ Shape = "File"; Debug = $false; Label = "" },
+        @{ Shape = "Command"; Debug = $false; Label = "" },
+        @{ Shape = "File"; Debug = $true; Label = " with --debug" },
+        @{ Shape = "Command"; Debug = $true; Label = " with --debug" }
+    ) {
+        $profile = Join-Path $TestDrive ("list-" + $Shape + $(if ($Debug) { "-debug" } else { "" }))
         $cacheDir = Join-Path $profile ".cache\mole"
         New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
         # A fresh cache stands in for the registry, so the child never scans this machine.
@@ -307,12 +312,19 @@ Describe "Machine-readable output through installed launcher call shapes" {
         $saved = $env:USERPROFILE
         try {
             $env:USERPROFILE = $profile
-            $result = Invoke-MoleShape -Shape $_ -Mole (Join-Path $script:WindowsDir "mole.ps1") -Arguments @("uninstall", "--list")
+            $arguments = @("uninstall", "--list")
+            # Debug lines and the session notes go to stderr, not into the JSON.
+            if ($Debug) { $arguments += "--debug" }
+            $result = Invoke-MoleShape -Shape $Shape -Mole (Join-Path $script:WindowsDir "mole.ps1") -Arguments $arguments
         }
         finally { $env:USERPROFILE = $saved }
 
         $result.ExitCode | Should -Be 0
         $result.Text.TrimStart().StartsWith("[") | Should -BeTrue
+        $result.Text.TrimEnd().EndsWith("]") | Should -BeTrue
+        if ($Debug) {
+            [System.IO.File]::ReadAllText((Join-Path $profile ".config\mole\mole_debug_session.log")) | Should -Match 'Loading from cache'
+        }
         $parsed = ConvertFrom-Json -InputObject $result.Text
         @($parsed).Count | Should -Be 1
         @($parsed)[0].id | Should -BeExactly "registry:HKLM-test\cached"
@@ -356,5 +368,29 @@ Describe "Machine-readable output through installed launcher call shapes" {
         $result.ExitCode | Should -Be 0
         $result.Text | Should -Match '(?m)^ARGS=--json\s*$'
         $result.Text | Should -Match ('(?m)^TARGET=' + [regex]::Escape($target) + '\s*$')
+    }
+
+    It "Keeps analyze --json --debug stdout to the analyzer's output through <_>" -ForEach @("File", "Command") {
+        $root = Join-Path $TestDrive ("analyze-debug-" + $_)
+        New-Item -ItemType Directory -Path (Join-Path $root "bin") -Force | Out-Null
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "mole.ps1") -Destination $root
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "VERSION") -Destination $root
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "lib") -Destination $root -Recurse
+        Copy-Item -LiteralPath (Join-Path $script:WindowsDir "bin\analyze.ps1") -Destination (Join-Path $root "bin")
+        $stub = Join-Path $root "bin\analyze-stub.cmd"
+        Set-Content -LiteralPath $stub -Value "@echo off`r`necho {}" -Encoding ASCII
+        Set-Content -LiteralPath (Join-Path $root "lib\core\tui_binaries.ps1") -Value "function Ensure-TuiBinary { param(`$Name, `$WindowsDir, `$DestinationPath, `$SourcePath) '$stub' }" -Encoding ASCII
+        $profile = Join-Path $TestDrive ("analyze-debug-profile-" + $_)
+        New-Item -ItemType Directory -Path $profile -Force | Out-Null
+        $saved = $env:USERPROFILE
+        try {
+            $env:USERPROFILE = $profile
+            $result = Invoke-MoleShape -Shape $_ -Mole (Join-Path $root "mole.ps1") -Arguments @("analyze", "--json", "--debug")
+        }
+        finally { $env:USERPROFILE = $saved }
+
+        $result.ExitCode | Should -Be 0
+        $result.Text.Trim() | Should -BeExactly "{}"
+        Test-Path -LiteralPath (Join-Path $profile ".config\mole\mole_debug_session.log") | Should -BeTrue
     }
 }
